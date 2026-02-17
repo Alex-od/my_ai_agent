@@ -16,6 +16,8 @@ import kotlinx.serialization.Serializable
 data class ChatRequest(
     val model: String,
     val messages: List<ChatMessage>,
+    val stop: List<String>? = null,
+    @SerialName("max_tokens") val maxTokens: Int? = null,
 )
 
 @Serializable
@@ -39,10 +41,17 @@ class OpenAiApi(
     private val client: HttpClient,
     private val apiKey: String,
 ) {
-    suspend fun ask(prompt: String): String {
+    suspend fun ask(
+        prompt: String,
+        model: String = "gpt-4o-mini",
+        stop: List<String>? = null,
+        maxTokens: Int? = null,
+    ): String {
         val request = ChatRequest(
-            model = "gpt-4o-mini",
+            model = model,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
+            stop = stop?.takeIf { it.isNotEmpty() },
+            maxTokens = maxTokens,
         )
         val httpResponse = client.post("https://api.openai.com/v1/chat/completions") {
             contentType(ContentType.Application.Json)

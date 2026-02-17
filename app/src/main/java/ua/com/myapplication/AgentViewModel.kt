@@ -15,17 +15,42 @@ sealed class UiState {
     data class Error(val message: String) : UiState()
 }
 
+data class AiModel(
+    val id: String,
+    val displayName: String,
+)
+
+val availableModels = listOf(
+    AiModel("gpt-4o-mini", "GPT-4o Mini"),
+    AiModel("gpt-4o", "GPT-4o"),
+    AiModel("gpt-4.1", "GPT-4.1"),
+    AiModel("gpt-4.1-mini", "GPT-4.1 Mini"),
+    AiModel("gpt-4.1-nano", "GPT-4.1 Nano"),
+    AiModel("o3-mini", "o3-mini"),
+)
+
 class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state
 
-    fun send(prompt: String) {
+    private val _selectedModel = MutableStateFlow(availableModels.first())
+    val selectedModel: StateFlow<AiModel> = _selectedModel
+
+    fun selectModel(model: AiModel) {
+        _selectedModel.value = model
+    }
+
+    fun send(
+        prompt: String,
+        stop: List<String>? = null,
+        maxTokens: Int? = null,
+    ) {
         if (prompt.isBlank()) return
         _state.value = UiState.Loading
         viewModelScope.launch {
             try {
-                val result = api.ask(prompt)
+                val result = api.ask(prompt, _selectedModel.value.id, stop, maxTokens)
                 Log.d("AgentViewModel", "Response: $result")
                 _state.value = UiState.Success(result)
             } catch (e: Exception) {

@@ -27,24 +27,73 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun Day1Screen(viewModel: AgentViewModel = koinViewModel()) {
+    var systemPrompt by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
+    var temperature by remember { mutableStateOf("") }
+    var topP by remember { mutableStateOf("") }
+    var topK by remember { mutableStateOf("") }
     val uiState by viewModel.state.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         OutlinedTextField(
+            value = systemPrompt,
+            onValueChange = { systemPrompt = it },
+            label = { Text("system_prompt") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Введите запрос") },
+            label = { Text("user_prompt") },
             modifier = Modifier.fillMaxWidth()
         )
 
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = temperature,
+            onValueChange = { temperature = it },
+            label = { Text("Temperature (0.0 - 2.0)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = topP,
+            onValueChange = { topP = it },
+            label = { Text("Top P (0.0 - 1.0)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = topK,
+            onValueChange = { topK = it },
+            label = { Text("Top K") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         Button(
-            onClick = { viewModel.send(query) },
+            onClick = {
+                viewModel.send(
+                    prompt = query,
+                    systemPrompt = systemPrompt.trim().takeIf { it.isNotEmpty() },
+                    temperature = temperature.trim().toDoubleOrNull(),
+                    topP = topP.trim().toDoubleOrNull(),
+                    topK = topK.trim().toIntOrNull(),
+                )
+            },
             enabled = uiState !is UiState.Loading,
             modifier = Modifier
                 .fillMaxWidth()
@@ -64,9 +113,7 @@ fun Day1Screen(viewModel: AgentViewModel = koinViewModel()) {
                 SelectionContainer {
                     Text(
                         text = state.text,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }

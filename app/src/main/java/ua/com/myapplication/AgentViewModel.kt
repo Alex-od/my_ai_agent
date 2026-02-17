@@ -43,14 +43,27 @@ class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
 
     fun send(
         prompt: String,
+        systemPrompt: String? = null,
         stop: List<String>? = null,
         maxTokens: Int? = null,
+        temperature: Double? = null,
+        topP: Double? = null,
+        topK: Int? = null,
     ) {
         if (prompt.isBlank()) return
         _state.value = UiState.Loading
         viewModelScope.launch {
             try {
-                val result = api.ask(prompt, _selectedModel.value.id, stop, maxTokens)
+                val result = api.ask(
+                    prompt = prompt,
+                    model = _selectedModel.value.id,
+                    systemPrompt = systemPrompt,
+                    stop = stop,
+                    maxTokens = maxTokens,
+                    temperature = temperature,
+                    topP = topP,
+                    topK = topK,
+                )
                 Log.d("AgentViewModel", "Response: $result")
                 _state.value = UiState.Success(result)
             } catch (e: Exception) {

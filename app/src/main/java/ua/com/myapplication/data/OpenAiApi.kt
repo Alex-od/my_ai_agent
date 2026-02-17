@@ -18,6 +18,9 @@ data class ChatRequest(
     val messages: List<ChatMessage>,
     val stop: List<String>? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
+    val temperature: Double? = null,
+    @SerialName("top_p") val topP: Double? = null,
+    @SerialName("top_k") val topK: Int? = null,
 )
 
 @Serializable
@@ -44,14 +47,27 @@ class OpenAiApi(
     suspend fun ask(
         prompt: String,
         model: String = "gpt-4o-mini",
+        systemPrompt: String? = null,
         stop: List<String>? = null,
         maxTokens: Int? = null,
+        temperature: Double? = null,
+        topP: Double? = null,
+        topK: Int? = null,
     ): String {
+        val messages = buildList {
+            if (!systemPrompt.isNullOrBlank()) {
+                add(ChatMessage(role = "system", content = systemPrompt))
+            }
+            add(ChatMessage(role = "user", content = prompt))
+        }
         val request = ChatRequest(
             model = model,
-            messages = listOf(ChatMessage(role = "user", content = prompt)),
+            messages = messages,
             stop = stop?.takeIf { it.isNotEmpty() },
             maxTokens = maxTokens,
+            temperature = temperature,
+            topP = topP,
+            topK = topK,
         )
         val httpResponse = client.post("https://api.openai.com/v1/chat/completions") {
             contentType(ContentType.Application.Json)

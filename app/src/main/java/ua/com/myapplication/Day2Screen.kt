@@ -43,7 +43,7 @@ fun Day2Screen(viewModel: AgentViewModel = koinViewModel()) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Введите запрос") },
+            label = { Text("user_prompt") },
             modifier = Modifier.fillMaxWidth(),
         )
 

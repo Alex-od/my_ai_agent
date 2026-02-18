@@ -2,6 +2,7 @@ package ua.com.myapplication.di
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -15,6 +16,11 @@ val appModule = module {
 
     single<HttpClient> {
         HttpClient(OkHttp) {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                connectTimeoutMillis = 15_000
+                socketTimeoutMillis  = 60_000
+            }
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true

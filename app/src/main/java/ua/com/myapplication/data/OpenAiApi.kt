@@ -20,7 +20,6 @@ data class ChatRequest(
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val temperature: Double? = null,
     @SerialName("top_p") val topP: Double? = null,
-    @SerialName("top_k") val topK: Int? = null,
 )
 
 @Serializable
@@ -52,7 +51,6 @@ class OpenAiApi(
         maxTokens: Int? = null,
         temperature: Double? = null,
         topP: Double? = null,
-        topK: Int? = null,
     ): String {
         val messages = buildList {
             if (!systemPrompt.isNullOrBlank()) {
@@ -67,7 +65,6 @@ class OpenAiApi(
             maxTokens = maxTokens,
             temperature = temperature,
             topP = topP,
-            topK = topK,
         )
         val httpResponse = client.post("https://api.openai.com/v1/chat/completions") {
             contentType(ContentType.Application.Json)

@@ -48,7 +48,6 @@ class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
         maxTokens: Int? = null,
         temperature: Double? = null,
         topP: Double? = null,
-        topK: Int? = null,
     ) {
         if (prompt.isBlank()) return
         _state.value = UiState.Loading
@@ -62,7 +61,6 @@ class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
                     maxTokens = maxTokens,
                     temperature = temperature,
                     topP = topP,
-                    topK = topK,
                 )
                 Log.d("AgentViewModel", "Response: $result")
                 _state.value = UiState.Success(result)

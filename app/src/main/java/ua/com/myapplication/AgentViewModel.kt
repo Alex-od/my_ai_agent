@@ -21,11 +21,17 @@ data class AiModel(
 )
 
 val availableModels = listOf(
-    AiModel("gpt-4o-mini", "GPT-4o Mini"),
-    AiModel("gpt-4o", "GPT-4o"),
-    AiModel("gpt-4.1", "GPT-4.1"),
+    AiModel("gpt-5.2", "GPT-5.2"),
+    AiModel("gpt-5.2-pro", "GPT-5.2 Pro"),
+    AiModel("gpt-5.2-codex", "GPT-5.2 Codex"),
+    AiModel("gpt-5-mini", "GPT-5 Mini"),
+    AiModel("gpt-5-nano", "GPT-5 Nano"),
     AiModel("gpt-4.1-mini", "GPT-4.1 Mini"),
+    AiModel("gpt-4.1", "GPT-4.1"),
     AiModel("gpt-4.1-nano", "GPT-4.1 Nano"),
+    AiModel("gpt-4o", "GPT-4o"),
+    AiModel("o4-mini", "o4-mini"),
+    AiModel("o3", "o3"),
     AiModel("o3-mini", "o3-mini"),
 )
 

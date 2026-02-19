@@ -1,9 +1,16 @@
 package ua.com.myapplication
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -41,6 +49,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(Screen.Day1) }
+    var modelsExpanded by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -72,22 +81,45 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                 }
 
                 // Секция: Модель
-                Text(
-                    text = "Модель",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
-                )
-                availableModels.forEach { model ->
-                    NavigationDrawerItem(
-                        label = { Text(model.displayName) },
-                        selected = model.id == selectedModel.id,
-                        onClick = {
-                            viewModel.selectModel(model)
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { modelsExpanded = !modelsExpanded }
+                        .padding(start = 16.dp, top = 16.dp, bottom = 4.dp, end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Модель",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
                     )
+                    Text(
+                        text = selectedModel.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Icon(
+                        imageVector = if (modelsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AnimatedVisibility(visible = modelsExpanded) {
+                    Column {
+                        availableModels.forEach { model ->
+                            NavigationDrawerItem(
+                                label = { Text(model.displayName) },
+                                selected = model.id == selectedModel.id,
+                                onClick = {
+                                    viewModel.selectModel(model)
+                                    modelsExpanded = false
+                                    scope.launch { drawerState.close() }
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                        }
+                    }
                 }
             }
         },

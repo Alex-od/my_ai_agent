@@ -1,20 +1,31 @@
-package ua.com.myapplication
+package ua.com.myaiagent
 
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import java.util.Locale
 
 @Composable
 fun VoiceTextField(
@@ -60,4 +71,50 @@ fun VoiceTextField(
             }
         }
     )
+}
+
+@Composable
+fun SpeakButton(text: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var isSpeaking by remember { mutableStateOf(false) }
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+
+    DisposableEffect(context) {
+        lateinit var engine: TextToSpeech
+        engine = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                engine.language = Locale.getDefault()
+            }
+        }
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) { isSpeaking = true }
+            override fun onDone(utteranceId: String?) { isSpeaking = false }
+            override fun onError(utteranceId: String?) { isSpeaking = false }
+        })
+        tts = engine
+        onDispose {
+            engine.stop()
+            engine.shutdown()
+            tts = null
+        }
+    }
+
+    IconButton(
+        onClick = {
+            val t = tts ?: return@IconButton
+            if (isSpeaking) {
+                t.stop()
+                isSpeaking = false
+            } else {
+                t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "speak_response")
+            }
+        },
+        enabled = text.isNotEmpty(),
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+            contentDescription = if (isSpeaking) "Остановить озвучку" else "Озвучить ответ",
+        )
+    }
 }

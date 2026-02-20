@@ -20,24 +20,34 @@ sealed class UiState {
     data class Error(val message: String) : UiState()
 }
 
+enum class ModelCategory(val label: String) {
+    FAST("Быстрые"),
+    MEDIUM("Средние"),
+    STRONG("Сильные"),
+}
+
 data class AiModel(
     val id: String,
     val displayName: String,
+    val category: ModelCategory,
 )
 
 val availableModels = listOf(
-    AiModel("gpt-5.2", "GPT-5.2"),
-    AiModel("gpt-5.2-pro", "GPT-5.2 Pro"),
-    AiModel("gpt-5.2-codex", "GPT-5.2 Codex"),
-    AiModel("gpt-5-mini", "GPT-5 Mini"),
-    AiModel("gpt-5-nano", "GPT-5 Nano"),
-    AiModel("gpt-4.1-mini", "GPT-4.1 Mini"),
-    AiModel("gpt-4.1", "GPT-4.1"),
-    AiModel("gpt-4.1-nano", "GPT-4.1 Nano"),
-    AiModel("gpt-4o", "GPT-4o"),
-    AiModel("o4-mini", "o4-mini"),
-    AiModel("o3", "o3"),
-    AiModel("o3-mini", "o3-mini"),
+    // Быстрые
+    AiModel("gpt-4.1-nano", "GPT-4.1 Nano", ModelCategory.FAST),
+    AiModel("gpt-5-nano", "GPT-5 Nano", ModelCategory.FAST),
+    AiModel("gpt-4.1-mini", "GPT-4.1 Mini", ModelCategory.FAST),
+    AiModel("gpt-5-mini", "GPT-5 Mini", ModelCategory.FAST),
+    AiModel("o3-mini", "o3-mini", ModelCategory.FAST),
+    // Средние
+    AiModel("gpt-4o", "GPT-4o", ModelCategory.MEDIUM),
+    AiModel("gpt-4.1", "GPT-4.1", ModelCategory.MEDIUM),
+    AiModel("gpt-5.2", "GPT-5.2", ModelCategory.MEDIUM),
+    AiModel("o4-mini", "o4-mini", ModelCategory.MEDIUM),
+    // Сильные
+    AiModel("o3", "o3", ModelCategory.STRONG),
+    AiModel("gpt-5.2-pro", "GPT-5.2 Pro", ModelCategory.STRONG),
+    AiModel("gpt-5.2-codex", "GPT-5.2 Codex", ModelCategory.STRONG),
 )
 
 class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
@@ -45,7 +55,7 @@ class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state
 
-    private val _selectedModel = MutableStateFlow(availableModels.first())
+    private val _selectedModel = MutableStateFlow(availableModels.first { it.id == "gpt-4.1-mini" })
     val selectedModel: StateFlow<AiModel> = _selectedModel
 
     private val _lastRequestLog = MutableStateFlow<RequestLog?>(null)

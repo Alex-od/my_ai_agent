@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import com.mikepenz.markdown.m3.Markdown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -135,12 +136,10 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
             is UiState.Idle -> {}
             is UiState.Loading -> CircularProgressIndicator()
             is UiState.Success -> {
-                SelectionContainer {
-                    Text(
-                        text = state.text,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                Markdown(
+                    content = state.text,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             is UiState.Error -> {
                 SelectionContainer {

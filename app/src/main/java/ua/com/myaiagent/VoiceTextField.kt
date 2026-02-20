@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -89,6 +89,7 @@ fun SpeakButton(text: String, modifier: Modifier = Modifier) {
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) { isSpeaking = true }
             override fun onDone(utteranceId: String?) { isSpeaking = false }
+            @Deprecated("Deprecated in API 21+")
             override fun onError(utteranceId: String?) { isSpeaking = false }
         })
         tts = engine
@@ -113,7 +114,7 @@ fun SpeakButton(text: String, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Icon(
-            imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+            imageVector = if (isSpeaking) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
             contentDescription = if (isSpeaking) "Остановить озвучку" else "Озвучить ответ",
         )
     }

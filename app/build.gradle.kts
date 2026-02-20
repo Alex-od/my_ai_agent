@@ -13,11 +13,11 @@ val localProperties = Properties().apply {
 }
 
 android {
-    namespace = "ua.com.myapplication"
+    namespace = "ua.com.myaiagent"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ua.com.myapplication"
+        applicationId = "ua.com.myaiagent"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -42,11 +42,13 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "11"
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        }
     }
     buildFeatures {
         compose = true
@@ -80,6 +82,9 @@ dependencies {
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
+
+    // Markdown
+    implementation(libs.markdown.renderer.m3)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

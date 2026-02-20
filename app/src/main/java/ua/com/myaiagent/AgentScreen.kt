@@ -93,18 +93,28 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     }
                     AnimatedVisibility(visible = modelsExpanded) {
                         Column {
-                            availableModels.forEach { model ->
-                                NavigationDrawerItem(
-                                    label = { Text(model.displayName) },
-                                    selected = model.id == selectedModel.id,
-                                    onClick = {
-                                        viewModel.selectModel(model)
-                                        modelsExpanded = false
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                )
-                            }
+                            availableModels
+                                .groupBy { it.category }
+                                .forEach { (category, models) ->
+                                    Text(
+                                        text = category.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 28.dp, top = 8.dp, bottom = 2.dp),
+                                    )
+                                    models.forEach { model ->
+                                        NavigationDrawerItem(
+                                            label = { Text(model.displayName) },
+                                            selected = model.id == selectedModel.id,
+                                            onClick = {
+                                                viewModel.selectModel(model)
+                                                modelsExpanded = false
+                                                scope.launch { drawerState.close() }
+                                            },
+                                            modifier = Modifier.padding(horizontal = 12.dp),
+                                        )
+                                    }
+                                }
                         }
                     }
 

@@ -1,4 +1,4 @@
-package ua.com.myapplication.data
+package ua.com.myaiagent.data
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -12,32 +12,39 @@ import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Request ──────────────────────────────────────────────────────────────────
+
 @Serializable
-data class ChatRequest(
+data class ResponsesRequest(
     val model: String,
-    val messages: List<ChatMessage>,
-    val stop: List<String>? = null,
-    @SerialName("max_tokens") val maxTokens: Int? = null,
+    val input: String,
+    val instructions: String? = null,
+    @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
     val temperature: Double? = null,
     @SerialName("top_p") val topP: Double? = null,
 )
 
+// ── Response ─────────────────────────────────────────────────────────────────
+
 @Serializable
-data class ChatMessage(
-    val role: String,
-    val content: String,
+data class ResponsesResponse(
+    val output: List<OutputItem> = emptyList(),
+    @SerialName("output_text") val outputText: String? = null,
 )
 
 @Serializable
-data class ChatResponse(
-    val choices: List<Choice>,
+data class OutputItem(
+    val type: String,
+    val content: List<ContentItem> = emptyList(),
 )
 
 @Serializable
-data class Choice(
-    val message: ChatMessage,
-    @SerialName("finish_reason") val finishReason: String? = null,
+data class ContentItem(
+    val type: String,
+    val text: String = "",
 )
+
+// ── API ───────────────────────────────────────────────────────────────────────
 
 class OpenAiApi(
     private val client: HttpClient,
@@ -45,28 +52,22 @@ class OpenAiApi(
 ) {
     suspend fun ask(
         prompt: String,
-        model: String = "gpt-4o-mini",
+        model: String = "gpt-4.1-mini",
         systemPrompt: String? = null,
-        stop: List<String>? = null,
+        stop: List<String>? = null,      // not supported by Responses API, ignored
         maxTokens: Int? = null,
         temperature: Double? = null,
         topP: Double? = null,
     ): String {
-        val messages = buildList {
-            if (!systemPrompt.isNullOrBlank()) {
-                add(ChatMessage(role = "system", content = systemPrompt))
-            }
-            add(ChatMessage(role = "user", content = prompt))
-        }
-        val request = ChatRequest(
+        val request = ResponsesRequest(
             model = model,
-            messages = messages,
-            stop = stop?.takeIf { it.isNotEmpty() },
-            maxTokens = maxTokens,
+            input = prompt,
+            instructions = systemPrompt?.takeIf { it.isNotBlank() },
+            maxOutputTokens = maxTokens,
             temperature = temperature,
             topP = topP,
         )
-        val httpResponse = client.post("https://api.openai.com/v1/chat/completions") {
+        val httpResponse = client.post("https://api.openai.com/v1/responses") {
             contentType(ContentType.Application.Json)
             header("Authorization", "Bearer $apiKey")
             setBody(request)
@@ -75,7 +76,14 @@ class OpenAiApi(
             val errorBody = httpResponse.bodyAsText()
             error("API error ${httpResponse.status.value}: $errorBody")
         }
-        val response: ChatResponse = httpResponse.body()
-        return response.choices.firstOrNull()?.message?.content ?: "Empty response"
+        val response: ResponsesResponse = httpResponse.body()
+        // output_text is a convenience field; fall back to output[0].content[0].text
+        return response.outputText
+            ?: response.output
+                .firstOrNull { it.type == "message" }
+                ?.content
+                ?.firstOrNull { it.type == "output_text" }
+                ?.text
+            ?: "Empty response"
     }
 }

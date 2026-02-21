@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.OpenAiApi
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,7 +51,7 @@ val availableModels = listOf(
     AiModel("gpt-5.2-codex", "GPT-5.2 Codex", ModelCategory.STRONG),
 )
 
-class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
+class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRepository) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state
@@ -104,6 +105,13 @@ class AgentViewModel(private val api: OpenAiApi) : ViewModel() {
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
                     temperature, topP, stop, maxTokens, duration, "Success", result,
+                )
+                repository.save(
+                    userPrompt = prompt,
+                    systemPrompt = systemPrompt,
+                    model = model.id,
+                    response = result,
+                    timestamp = startTime,
                 )
             } catch (e: Exception) {
                 val duration = System.currentTimeMillis() - startTime

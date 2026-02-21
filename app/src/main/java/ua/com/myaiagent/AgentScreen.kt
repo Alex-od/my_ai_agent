@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
+enum class Screen { CHAT, HISTORY }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
@@ -54,6 +57,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var modelsExpanded by remember { mutableStateOf(false) }
+    var currentScreen by remember { mutableStateOf(Screen.CHAT) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -65,6 +69,20 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp),
                     )
+
+                    // Navigation
+                    NavigationDrawerItem(
+                        label = { Text("История") },
+                        selected = currentScreen == Screen.HISTORY,
+                        icon = { Icon(Icons.Default.History, contentDescription = null) },
+                        onClick = {
+                            currentScreen = Screen.HISTORY
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                     // Секция: Модель
                     Row(
@@ -173,7 +191,19 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Chat") },
+                    title = {
+                        when (currentScreen) {
+                            Screen.CHAT -> Column {
+                                Text("Chat")
+                                Text(
+                                    text = selectedModel.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Screen.HISTORY -> Text("История")
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Меню")
@@ -183,7 +213,10 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
             },
         ) { innerPadding ->
             Box(modifier = Modifier.padding(innerPadding)) {
-                ChatScreen(viewModel)
+                when (currentScreen) {
+                    Screen.CHAT -> ChatScreen(viewModel)
+                    Screen.HISTORY -> HistoryScreen()
+                }
             }
         }
     }

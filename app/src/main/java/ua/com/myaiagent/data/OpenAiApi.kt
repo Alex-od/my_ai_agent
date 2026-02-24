@@ -44,6 +44,33 @@ data class ContentItem(
     val text: String = "",
 )
 
+// ── Chat Completions Request/Response ─────────────────────────────────────────
+
+@Serializable
+data class ChatCompletionMessage(
+    val role: String,
+    val content: String,
+)
+
+@Serializable
+data class ChatCompletionRequest(
+    val model: String,
+    val messages: List<ChatCompletionMessage>,
+    @SerialName("max_tokens") val maxTokens: Int? = null,
+    val temperature: Double? = null,
+    @SerialName("top_p") val topP: Double? = null,
+)
+
+@Serializable
+data class ChatChoice(
+    val message: ChatCompletionMessage,
+)
+
+@Serializable
+data class ChatCompletionResponse(
+    val choices: List<ChatChoice> = emptyList(),
+)
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 class OpenAiApi(
@@ -85,5 +112,32 @@ class OpenAiApi(
                 ?.firstOrNull { it.type == "output_text" }
                 ?.text
             ?: "Empty response"
+    }
+
+    suspend fun chat(
+        messages: List<ChatMessage>,
+        model: String = "gpt-4.1-mini",
+        maxTokens: Int? = null,
+        temperature: Double? = null,
+        topP: Double? = null,
+    ): String {
+        val request = ChatCompletionRequest(
+            model = model,
+            messages = messages.map { ChatCompletionMessage(it.role, it.content) },
+            maxTokens = maxTokens,
+            temperature = temperature,
+            topP = topP,
+        )
+        val httpResponse = client.post("https://api.openai.com/v1/chat/completions") {
+            contentType(ContentType.Application.Json)
+            header("Authorization", "Bearer $apiKey")
+            setBody(request)
+        }
+        if (!httpResponse.status.isSuccess()) {
+            val errorBody = httpResponse.bodyAsText()
+            error("API error ${httpResponse.status.value}: $errorBody")
+        }
+        val response: ChatCompletionResponse = httpResponse.body()
+        return response.choices.firstOrNull()?.message?.content ?: "Empty response"
     }
 }

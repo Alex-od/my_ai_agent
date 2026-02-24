@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
+import ua.com.myaiagent.Agent
 import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
 import ua.com.myaiagent.HistoryViewModel
@@ -49,6 +50,8 @@ val appModule = module {
     single { get<AppDatabase>().chatDao() }
 
     single { ChatRepository(get()) }
+
+    single { Agent(get()) }
 
     viewModel { AgentViewModel(get(), get()) }
 

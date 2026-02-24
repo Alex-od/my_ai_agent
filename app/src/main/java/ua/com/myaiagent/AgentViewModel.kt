@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import ua.com.myaiagent.data.ChatRepository
-import ua.com.myaiagent.data.OpenAiApi
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,7 +50,7 @@ val availableModels = listOf(
     AiModel("gpt-5.2-codex", "GPT-5.2 Codex", ModelCategory.STRONG),
 )
 
-class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRepository) : ViewModel() {
+class AgentViewModel(private val agent: Agent, private val repository: ChatRepository) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state
@@ -90,11 +89,10 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
             val model = _selectedModel.value
             try {
-                val result = api.ask(
-                    prompt = prompt,
+                agent.setSystemPrompt(systemPrompt ?: "")
+                val result = agent.send(
+                    userMessage = prompt,
                     model = model.id,
-                    systemPrompt = systemPrompt,
-                    stop = stop,
                     maxTokens = maxTokens,
                     temperature = temperature,
                     topP = topP,
@@ -156,4 +154,10 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
         appendLine("--- Response ($status) ---")
         append(response)
     })
+
+    fun resetConversation() {
+        agent.reset()
+        _state.value = UiState.Idle
+        _lastRequestLog.value = null
+    }
 }

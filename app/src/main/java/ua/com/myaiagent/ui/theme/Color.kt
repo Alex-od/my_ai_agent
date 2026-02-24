@@ -1,4 +1,4 @@
-package ua.com.myapplication.ui.theme
+package ua.com.myaiagent.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

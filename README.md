@@ -27,7 +27,7 @@ Android-приложение для общения с OpenAI API (GPT-4o-mini). 
 ## Структура проекта
 
 ```
-app/src/main/java/ua/com/myapplication/
+app/src/main/java/ua/com/myaiagent/
 ├── App.kt                  # Application — инициализация Koin
 ├── MainActivity.kt         # Точка входа, Scaffold + тема
 ├── AgentScreen.kt          # UI: поле ввода, кнопка, вывод ответа

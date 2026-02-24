@@ -1,4 +1,4 @@
-package ua.com.myapplication
+package ua.com.myaiagent
 
 import org.junit.Test
 

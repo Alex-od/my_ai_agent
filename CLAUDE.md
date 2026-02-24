@@ -32,13 +32,7 @@ Common Gradle tasks via terminal:
 
 **Data flow:**
 ```
-Day1Screen / Day2Screen (Compose UI)
-    ↓  user input
-AgentViewModel.send(...)         ← sealed UiState: Idle | Loading | Success | Error
-    ↓  suspend call
-OpenAiApi.ask(...)               ← Ktor POST to OpenAI Chat Completions API
-    ↓  response
-StateFlow emission → recomposition
+
 ```
 
 **Key files:**

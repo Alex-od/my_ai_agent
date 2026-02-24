@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
@@ -72,6 +73,17 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     )
 
                     // Navigation
+                    NavigationDrawerItem(
+                        label = { Text("Новый чат") },
+                        selected = false,
+                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        onClick = {
+                            viewModel.startNewChat()
+                            currentScreen = Screen.CHAT
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
                     NavigationDrawerItem(
                         label = { Text("История") },
                         selected = currentScreen == Screen.HISTORY,

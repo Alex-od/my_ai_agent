@@ -16,6 +16,7 @@ import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.local.AppDatabase
+import ua.com.myaiagent.data.local.MIGRATION_1_2
 
 val appModule = module {
 
@@ -43,7 +44,9 @@ val appModule = module {
     }
 
     single<AppDatabase> {
-        Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db").build()
+        Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
     }
 
     single { get<AppDatabase>().chatDao() }

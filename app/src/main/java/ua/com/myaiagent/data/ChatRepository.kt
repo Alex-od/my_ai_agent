@@ -10,25 +10,57 @@ class ChatRepository(private val dao: ChatDao) {
 
     val conversations: Flow<List<ConversationWithMessages>> = dao.getAllConversations()
 
-    suspend fun save(
-        userPrompt: String,
-        systemPrompt: String?,
-        model: String,
-        response: String,
-        timestamp: Long = System.currentTimeMillis(),
-    ) {
-        val title = userPrompt.take(40)
+    suspend fun getActiveSession(): ConversationWithMessages? = dao.getActiveConversation()
+
+    suspend fun getOrCreateSession(model: String, systemPrompt: String?): Long {
+        val existing = dao.getActiveConversation()
+        if (existing != null) return existing.conversation.id
+        val now = System.currentTimeMillis()
         val conversationId = dao.insertConversation(
-            ConversationEntity(title = title, model = model, createdAt = timestamp)
+            ConversationEntity(
+                title = "Новый чат",
+                model = model,
+                createdAt = now,
+                isActive = true,
+            )
         )
-        val messages = buildList {
-            if (!systemPrompt.isNullOrBlank()) {
-                add(MessageEntity(conversationId = conversationId, role = "system", content = systemPrompt, timestamp = timestamp))
-            }
-            add(MessageEntity(conversationId = conversationId, role = "user", content = userPrompt, timestamp = timestamp))
-            add(MessageEntity(conversationId = conversationId, role = "assistant", content = response, timestamp = timestamp))
+        if (!systemPrompt.isNullOrBlank()) {
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    role = "system",
+                    content = systemPrompt,
+                    timestamp = now,
+                )
+            )
         }
-        dao.insertMessages(messages)
+        return conversationId
+    }
+
+    suspend fun appendUserMessage(conversationId: Long, content: String) {
+        dao.insertMessage(
+            MessageEntity(
+                conversationId = conversationId,
+                role = "user",
+                content = content,
+                timestamp = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    suspend fun appendAssistantMessage(conversationId: Long, content: String) {
+        dao.insertMessage(
+            MessageEntity(
+                conversationId = conversationId,
+                role = "assistant",
+                content = content,
+                timestamp = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    suspend fun startNewChat() {
+        dao.deactivateAllConversations()
     }
 
     suspend fun delete(conversationId: Long) {

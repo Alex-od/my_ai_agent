@@ -14,9 +14,19 @@ interface ChatDao {
     @Insert
     suspend fun insertMessages(messages: List<MessageEntity>)
 
+    @Insert
+    suspend fun insertMessage(message: MessageEntity)
+
     @Transaction
     @Query("SELECT * FROM conversations ORDER BY createdAt DESC")
     fun getAllConversations(): Flow<List<ConversationWithMessages>>
+
+    @Transaction
+    @Query("SELECT * FROM conversations WHERE isActive = 1 LIMIT 1")
+    suspend fun getActiveConversation(): ConversationWithMessages?
+
+    @Query("UPDATE conversations SET isActive = 0")
+    suspend fun deactivateAllConversations()
 
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversation(id: Long)

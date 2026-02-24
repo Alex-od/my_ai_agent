@@ -7,12 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import ua.com.myaiagent.data.ChatRepository
+import ua.com.myaiagent.data.ConversationMessage
 import ua.com.myaiagent.data.OpenAiApi
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 data class RequestLog(val content: String)
+
+data class UiMessage(val role: String, val content: String)
 
 sealed class UiState {
     data object Idle : UiState()
@@ -62,56 +65,75 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
     private val _lastRequestLog = MutableStateFlow<RequestLog?>(null)
     val lastRequestLog: StateFlow<RequestLog?> = _lastRequestLog
 
+    private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
+    val messages: StateFlow<List<UiMessage>> = _messages
+
+    val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
     val topPInput = MutableStateFlow("")
     val maxTokensInput = MutableStateFlow("")
     val stopInput = MutableStateFlow("")
 
+    private var activeConversationId: Long? = null
+
+    init {
+        viewModelScope.launch {
+            val session = repository.getActiveSession() ?: return@launch
+            activeConversationId = session.conversation.id
+            val sys = session.messages.firstOrNull { it.role == "system" }
+            if (sys != null) systemPromptInput.value = sys.content
+            _messages.value = session.messages
+                .filter { it.role != "system" }
+                .map { UiMessage(it.role, it.content) }
+        }
+    }
+
     fun selectModel(model: AiModel) {
         _selectedModel.value = model
     }
 
-    fun send(
-        prompt: String,
-        systemPrompt: String? = null,
-    ) {
+    fun send(prompt: String) {
         if (prompt.isBlank()) return
         val temperature = temperatureInput.value.toDoubleOrNull()
         val topP = topPInput.value.toDoubleOrNull()
         val maxTokens = maxTokensInput.value.toIntOrNull()
-        val stop = stopInput.value.trim()
-            .takeIf { it.isNotBlank() }
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
+        val model = _selectedModel.value
+        val systemPrompt = systemPromptInput.value.trim().takeIf { it.isNotBlank() }
+
         _state.value = UiState.Loading
         viewModelScope.launch {
             val startTime = System.currentTimeMillis()
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            val model = _selectedModel.value
             try {
-                val result = api.ask(
-                    prompt = prompt,
+                val conversationId = activeConversationId
+                    ?: repository.getOrCreateSession(model.id, systemPrompt).also {
+                        activeConversationId = it
+                    }
+
+                repository.appendUserMessage(conversationId, prompt)
+                val updatedMessages = _messages.value + UiMessage("user", prompt)
+                _messages.value = updatedMessages
+
+                val apiMessages = updatedMessages.map { ConversationMessage(it.role, it.content) }
+                val result = api.askWithHistory(
+                    messages = apiMessages,
                     model = model.id,
                     systemPrompt = systemPrompt,
-                    stop = stop,
                     maxTokens = maxTokens,
                     temperature = temperature,
                     topP = topP,
                 )
+
                 val duration = System.currentTimeMillis() - startTime
                 Log.d("AgentViewModel", "Response: $result")
-                _state.value = UiState.Success(result)
+
+                repository.appendAssistantMessage(conversationId, result)
+                _messages.value = _messages.value + UiMessage("assistant", result)
+                _state.value = UiState.Idle
+
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
-                    temperature, topP, stop, maxTokens, duration, "Success", result,
-                )
-                repository.save(
-                    userPrompt = prompt,
-                    systemPrompt = systemPrompt,
-                    model = model.id,
-                    response = result,
-                    timestamp = startTime,
+                    temperature, topP, null, maxTokens, duration, "Success", result,
                 )
             } catch (e: Exception) {
                 val duration = System.currentTimeMillis() - startTime
@@ -119,9 +141,19 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 _state.value = UiState.Error(e.message ?: "Unknown error")
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
-                    temperature, topP, stop, maxTokens, duration, "Error", e.message ?: "Unknown error",
+                    temperature, topP, null, maxTokens, duration, "Error", e.message ?: "Unknown error",
                 )
             }
+        }
+    }
+
+    fun startNewChat() {
+        viewModelScope.launch {
+            repository.startNewChat()
+            activeConversationId = null
+            _messages.value = emptyList()
+            systemPromptInput.value = ""
+            _state.value = UiState.Idle
         }
     }
 

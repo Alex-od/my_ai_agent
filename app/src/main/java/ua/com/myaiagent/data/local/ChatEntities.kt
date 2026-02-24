@@ -13,6 +13,7 @@ data class ConversationEntity(
     val title: String,
     val model: String,
     val createdAt: Long,
+    val isActive: Boolean = false,
 )
 
 @Entity(

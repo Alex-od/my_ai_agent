@@ -70,38 +70,6 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(messages) { message ->
-                MessageBubble(message)
-            }
-            if (uiState is UiState.Loading) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                        CircularProgressIndicator(modifier = Modifier.padding(8.dp))
-                    }
-                }
-            }
-            if (uiState is UiState.Error) {
-                item {
-                    SelectionContainer {
-                        Text(
-                            text = (uiState as UiState.Error).message,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         VoiceTextField(
             value = query,
             onValueChange = { query = it },
@@ -139,6 +107,38 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
 
         val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
         SpeakButton(text = lastAssistantText)
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(messages) { message ->
+                MessageBubble(message)
+            }
+            if (uiState is UiState.Loading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                        CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+                    }
+                }
+            }
+            if (uiState is UiState.Error) {
+                item {
+                    SelectionContainer {
+                        Text(
+                            text = (uiState as UiState.Error).message,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showLogs) {

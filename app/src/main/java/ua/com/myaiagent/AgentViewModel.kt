@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ConversationMessage
 import ua.com.myaiagent.data.OpenAiApi
+import ua.com.myaiagent.data.UsageInfo
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,6 +17,18 @@ import java.util.Locale
 data class RequestLog(val content: String)
 
 data class UiMessage(val role: String, val content: String)
+
+data class TokenStats(
+    // последний запрос
+    val lastInput: Int = 0,
+    val lastOutput: Int = 0,
+    val lastTotal: Int = 0,
+    // накопительно по всему диалогу
+    val totalInput: Int = 0,
+    val totalOutput: Int = 0,
+    val totalAll: Int = 0,
+    val requestCount: Int = 0,
+)
 
 sealed class UiState {
     data object Idle : UiState()
@@ -64,6 +77,9 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
 
     private val _lastRequestLog = MutableStateFlow<RequestLog?>(null)
     val lastRequestLog: StateFlow<RequestLog?> = _lastRequestLog
+
+    private val _tokenStats = MutableStateFlow(TokenStats())
+    val tokenStats: StateFlow<TokenStats> = _tokenStats
 
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages
@@ -115,7 +131,7 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 _messages.value = updatedMessages
 
                 val apiMessages = updatedMessages.map { ConversationMessage(it.role, it.content) }
-                val result = api.askWithHistory(
+                val apiResult = api.askWithHistory(
                     messages = apiMessages,
                     model = model.id,
                     systemPrompt = systemPrompt,
@@ -125,15 +141,31 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 )
 
                 val duration = System.currentTimeMillis() - startTime
-                Log.d("AgentViewModel", "Response: $result")
+                Log.d("AgentViewModel", "Response: ${apiResult.text}")
+                Log.d("AgentViewModel", "Usage: ${apiResult.usage}")
 
-                repository.appendAssistantMessage(conversationId, result)
-                _messages.value = _messages.value + UiMessage("assistant", result)
+                // обновляем статистику токенов
+                val usage = apiResult.usage
+                if (usage != null) {
+                    val prev = _tokenStats.value
+                    _tokenStats.value = TokenStats(
+                        lastInput = usage.inputTokens,
+                        lastOutput = usage.outputTokens,
+                        lastTotal = usage.totalTokens,
+                        totalInput = prev.totalInput + usage.inputTokens,
+                        totalOutput = prev.totalOutput + usage.outputTokens,
+                        totalAll = prev.totalAll + usage.totalTokens,
+                        requestCount = prev.requestCount + 1,
+                    )
+                }
+
+                repository.appendAssistantMessage(conversationId, apiResult.text)
+                _messages.value = _messages.value + UiMessage("assistant", apiResult.text)
                 _state.value = UiState.Idle
 
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
-                    temperature, topP, null, maxTokens, duration, "Success", result,
+                    temperature, topP, null, maxTokens, duration, "Success", apiResult.text, usage,
                 )
             } catch (e: Exception) {
                 val duration = System.currentTimeMillis() - startTime
@@ -153,6 +185,7 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
             activeConversationId = null
             _messages.value = emptyList()
             systemPromptInput.value = ""
+            _tokenStats.value = TokenStats()
             _state.value = UiState.Idle
         }
     }
@@ -169,6 +202,7 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
         durationMs: Long,
         status: String,
         response: String,
+        usage: UsageInfo? = null,
     ) = RequestLog(buildString {
         appendLine("=== Request Log ===")
         appendLine("Time:       $timestamp")
@@ -181,6 +215,13 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
         appendLine("Max Tokens:  ${maxTokens ?: "default"}")
         appendLine("Stop:        ${stop?.joinToString() ?: "none"}")
         appendLine()
+        if (usage != null) {
+            appendLine("--- Token Usage ---")
+            appendLine("Input tokens:  ${usage.inputTokens}")
+            appendLine("Output tokens: ${usage.outputTokens}")
+            appendLine("Total tokens:  ${usage.totalTokens}")
+            appendLine()
+        }
         appendLine("--- Messages ---")
         if (systemPrompt != null) appendLine("System: $systemPrompt")
         appendLine("User: $prompt")

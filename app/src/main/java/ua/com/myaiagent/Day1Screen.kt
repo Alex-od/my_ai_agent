@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +46,7 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
     val uiState by viewModel.state.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val lastLog by viewModel.lastRequestLog.collectAsState()
+    val tokenStats by viewModel.tokenStats.collectAsState()
     var query by remember { mutableStateOf("") }
     var showLogs by remember { mutableStateOf(false) }
 
@@ -108,6 +110,10 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
         val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
         SpeakButton(text = lastAssistantText)
 
+        if (tokenStats.requestCount > 0) {
+            TokenStatsBar(tokenStats)
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         LazyColumn(
@@ -160,6 +166,52 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun TokenStatsBar(stats: TokenStats) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Последний запрос",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "in: ${stats.lastInput}  out: ${stats.lastOutput}  total: ${stats.lastTotal}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Диалог (${stats.requestCount} запр.)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "in: ${stats.totalInput}  out: ${stats.totalOutput}  total: ${stats.totalAll}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 

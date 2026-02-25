@@ -27,9 +27,19 @@ data class ResponsesRequest(
 // ── Response ─────────────────────────────────────────────────────────────────
 
 @Serializable
+data class UsageInfo(
+    @SerialName("input_tokens") val inputTokens: Int = 0,
+    @SerialName("output_tokens") val outputTokens: Int = 0,
+    @SerialName("total_tokens") val totalTokens: Int = 0,
+)
+
+data class ApiResult(val text: String, val usage: UsageInfo?)
+
+@Serializable
 data class ResponsesResponse(
     val output: List<OutputItem> = emptyList(),
     @SerialName("output_text") val outputText: String? = null,
+    val usage: UsageInfo? = null,
 )
 
 @Serializable
@@ -73,7 +83,7 @@ class OpenAiApi(
         maxTokens: Int? = null,
         temperature: Double? = null,
         topP: Double? = null,
-    ): String {
+    ): ApiResult {
         val request = ResponsesRequest(
             model = model,
             input = prompt,
@@ -92,14 +102,14 @@ class OpenAiApi(
             error("API error ${httpResponse.status.value}: $errorBody")
         }
         val response: ResponsesResponse = httpResponse.body()
-        // output_text is a convenience field; fall back to output[0].content[0].text
-        return response.outputText
+        val text = response.outputText
             ?: response.output
                 .firstOrNull { it.type == "message" }
                 ?.content
                 ?.firstOrNull { it.type == "output_text" }
                 ?.text
             ?: "Empty response"
+        return ApiResult(text, response.usage)
     }
 
     suspend fun askWithHistory(
@@ -109,7 +119,7 @@ class OpenAiApi(
         maxTokens: Int? = null,
         temperature: Double? = null,
         topP: Double? = null,
-    ): String {
+    ): ApiResult {
         val request = ResponsesRequestWithHistory(
             model = model,
             input = messages,
@@ -128,12 +138,13 @@ class OpenAiApi(
             error("API error ${httpResponse.status.value}: $errorBody")
         }
         val response: ResponsesResponse = httpResponse.body()
-        return response.outputText
+        val text = response.outputText
             ?: response.output
                 .firstOrNull { it.type == "message" }
                 ?.content
                 ?.firstOrNull { it.type == "output_text" }
                 ?.text
             ?: "Empty response"
+        return ApiResult(text, response.usage)
     }
 }

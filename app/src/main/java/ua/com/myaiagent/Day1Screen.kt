@@ -181,6 +181,25 @@ private fun TokenStatsBar(stats: TokenStats) {
             )
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
+        if (stats.lastTruncated) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "⚠ Ответ обрезан: превышен лимит токенов",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

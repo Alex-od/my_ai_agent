@@ -33,13 +33,20 @@ data class UsageInfo(
     @SerialName("total_tokens") val totalTokens: Int = 0,
 )
 
-data class ApiResult(val text: String, val usage: UsageInfo?)
+@Serializable
+data class IncompleteDetails(
+    val reason: String = "",
+)
+
+data class ApiResult(val text: String, val usage: UsageInfo?, val truncated: Boolean = false)
 
 @Serializable
 data class ResponsesResponse(
     val output: List<OutputItem> = emptyList(),
     @SerialName("output_text") val outputText: String? = null,
     val usage: UsageInfo? = null,
+    val status: String = "",
+    @SerialName("incomplete_details") val incompleteDetails: IncompleteDetails? = null,
 )
 
 @Serializable
@@ -109,7 +116,8 @@ class OpenAiApi(
                 ?.firstOrNull { it.type == "output_text" }
                 ?.text
             ?: "Empty response"
-        return ApiResult(text, response.usage)
+        val truncated = response.status == "incomplete"
+        return ApiResult(text, response.usage, truncated)
     }
 
     suspend fun askWithHistory(
@@ -145,6 +153,7 @@ class OpenAiApi(
                 ?.firstOrNull { it.type == "output_text" }
                 ?.text
             ?: "Empty response"
-        return ApiResult(text, response.usage)
+        val truncated = response.status == "incomplete"
+        return ApiResult(text, response.usage, truncated)
     }
 }

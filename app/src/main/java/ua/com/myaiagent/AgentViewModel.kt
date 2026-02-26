@@ -23,6 +23,7 @@ data class TokenStats(
     val lastInput: Int = 0,
     val lastOutput: Int = 0,
     val lastTotal: Int = 0,
+    val lastTruncated: Boolean = false,
     // накопительно по всему диалогу
     val totalInput: Int = 0,
     val totalOutput: Int = 0,
@@ -152,6 +153,7 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                         lastInput = usage.inputTokens,
                         lastOutput = usage.outputTokens,
                         lastTotal = usage.totalTokens,
+                        lastTruncated = apiResult.truncated,
                         totalInput = prev.totalInput + usage.inputTokens,
                         totalOutput = prev.totalOutput + usage.outputTokens,
                         totalAll = prev.totalAll + usage.totalTokens,
@@ -163,9 +165,10 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 _messages.value = _messages.value + UiMessage("assistant", apiResult.text)
                 _state.value = UiState.Idle
 
+                val status = if (apiResult.truncated) "Truncated (max_output_tokens)" else "Success"
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
-                    temperature, topP, null, maxTokens, duration, "Success", apiResult.text, usage,
+                    temperature, topP, null, maxTokens, duration, status, apiResult.text, usage,
                 )
             } catch (e: Exception) {
                 val duration = System.currentTimeMillis() - startTime

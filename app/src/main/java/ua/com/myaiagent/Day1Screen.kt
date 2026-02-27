@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,12 +25,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,8 +52,11 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val lastLog by viewModel.lastRequestLog.collectAsState()
     val tokenStats by viewModel.tokenStats.collectAsState()
+    val compressionEnabled by viewModel.compressionEnabled.collectAsState()
+    val compressedCount by viewModel.compressedCount.collectAsState()
     var query by remember { mutableStateOf("") }
     var showLogs by remember { mutableStateOf(false) }
+    var logTab by remember { mutableIntStateOf(0) }
 
     val listState = rememberLazyListState()
 
@@ -111,7 +119,7 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
         SpeakButton(text = lastAssistantText)
 
         if (tokenStats.requestCount > 0) {
-            TokenStatsBar(tokenStats)
+            TokenStatsBar(tokenStats, compressionEnabled, compressedCount)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -152,12 +160,31 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
             onDismissRequest = { showLogs = false },
             title = { Text("Лог запроса") },
             text = {
-                SelectionContainer {
-                    Text(
-                        text = lastLog?.content ?: "",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                    )
+                Column {
+                    TabRow(selectedTabIndex = logTab) {
+                        Tab(
+                            selected = logTab == 0,
+                            onClick = { logTab = 0 },
+                            text = { Text("Лог") },
+                        )
+                        Tab(
+                            selected = logTab == 1,
+                            onClick = { logTab = 1 },
+                            text = { Text("JSON") },
+                        )
+                    }
+                    SelectionContainer {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Text(
+                                text = when (logTab) {
+                                    0 -> lastLog?.content ?: ""
+                                    else -> lastLog?.rawJson ?: ""
+                                },
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -170,7 +197,7 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
 }
 
 @Composable
-private fun TokenStatsBar(stats: TokenStats) {
+private fun TokenStatsBar(stats: TokenStats, compressionEnabled: Boolean, compressedCount: Int) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -230,6 +257,27 @@ private fun TokenStatsBar(stats: TokenStats) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+        }
+        if (compressionEnabled) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = if (compressedCount > 0) "Контекст: сжато $compressedCount сообщ."
+                           else "Контекст: полный (ещё не сжато)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+                if (stats.summaryCount > 0) {
+                    Text(
+                        text = "сумм: in ${stats.summaryInput}  out ${stats.summaryOutput}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
         }
     }
 }

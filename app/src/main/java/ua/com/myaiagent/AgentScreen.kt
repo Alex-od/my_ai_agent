@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Switch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     val topP by viewModel.topPInput.collectAsState()
     val maxTokens by viewModel.maxTokensInput.collectAsState()
     val stop by viewModel.stopInput.collectAsState()
+    val compressionEnabled by viewModel.compressionEnabled.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var modelsExpanded by remember { mutableStateOf(false) }
@@ -197,6 +199,37 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+
+                    // Секция: Контекст
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "Контекст",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Сжатие контекста",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                text = "каждые ${AgentViewModel.COMPRESS_EVERY} сообщений, последние ${AgentViewModel.RECENT_KEEP} как есть",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = compressionEnabled,
+                            onCheckedChange = { viewModel.setCompressionEnabled(it) },
+                        )
+                    }
                 }
             }
         },

@@ -14,9 +14,11 @@ import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
 import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
+import ua.com.myaiagent.data.ContextCompressor
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.local.AppDatabase
 import ua.com.myaiagent.data.local.MIGRATION_1_2
+import ua.com.myaiagent.data.local.MIGRATION_2_3
 
 val appModule = module {
 
@@ -45,7 +47,7 @@ val appModule = module {
 
     single<AppDatabase> {
         Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 
@@ -53,7 +55,9 @@ val appModule = module {
 
     single { ChatRepository(get()) }
 
-    viewModel { AgentViewModel(get(), get()) }
+    single { ContextCompressor(get()) }
+
+    viewModel { AgentViewModel(get(), get(), get()) }
 
     viewModel { HistoryViewModel(get()) }
 }

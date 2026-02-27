@@ -14,6 +14,7 @@ data class ConversationEntity(
     val model: String,
     val createdAt: Long,
     val isActive: Boolean = false,
+    val summary: String? = null,
 )
 
 @Entity(

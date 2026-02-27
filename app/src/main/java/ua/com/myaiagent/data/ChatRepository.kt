@@ -66,4 +66,13 @@ class ChatRepository(private val dao: ChatDao) {
     suspend fun delete(conversationId: Long) {
         dao.deleteConversation(conversationId)
     }
+
+    suspend fun getSummary(conversationId: Long): String? {
+        val session = dao.getActiveConversation() ?: return null
+        return if (session.conversation.id == conversationId) session.conversation.summary else null
+    }
+
+    suspend fun saveSummary(conversationId: Long, summary: String) {
+        dao.updateSummary(conversationId, summary)
+    }
 }

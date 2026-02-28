@@ -6,7 +6,7 @@ import ua.com.myaiagent.data.local.ConversationEntity
 import ua.com.myaiagent.data.local.ConversationWithMessages
 import ua.com.myaiagent.data.local.MessageEntity
 
-class ChatRepository(private val dao: ChatDao) {
+class ChatRepository(val dao: ChatDao) {
 
     val conversations: Flow<List<ConversationWithMessages>> = dao.getAllConversations()
 

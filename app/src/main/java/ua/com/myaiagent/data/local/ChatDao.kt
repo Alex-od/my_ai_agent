@@ -33,4 +33,35 @@ interface ChatDao {
 
     @Query("UPDATE conversations SET summary = :summary WHERE id = :id")
     suspend fun updateSummary(id: Long, summary: String)
+
+    // ── Facts ────────────────────────────────────────────────────────────────
+
+    @Insert
+    suspend fun insertFact(fact: FactEntity): Long
+
+    @Query("""
+        UPDATE facts SET value = :value, createdAt = :createdAt
+        WHERE conversationId = :conversationId AND key = :key
+    """)
+    suspend fun updateFact(conversationId: Long, key: String, value: String, createdAt: Long): Int
+
+    @Query("SELECT * FROM facts WHERE conversationId = :conversationId ORDER BY key ASC")
+    suspend fun getFactsForConversation(conversationId: Long): List<FactEntity>
+
+    @Query("DELETE FROM facts WHERE conversationId = :conversationId")
+    suspend fun deleteFactsForConversation(conversationId: Long)
+
+    // ── Branches ─────────────────────────────────────────────────────────────
+
+    @Insert
+    suspend fun insertBranch(branch: BranchEntity): Long
+
+    @Query("SELECT * FROM branches WHERE id = :id")
+    suspend fun getBranch(id: Long): BranchEntity?
+
+    @Query("SELECT * FROM branches WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    suspend fun getBranchesForConversation(conversationId: Long): List<BranchEntity>
+
+    @Query("DELETE FROM branches WHERE id = :id")
+    suspend fun deleteBranch(id: Long)
 }

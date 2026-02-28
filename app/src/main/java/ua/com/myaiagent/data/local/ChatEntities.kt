@@ -45,3 +45,44 @@ data class ConversationWithMessages(
     )
     val messages: List<MessageEntity>,
 )
+
+@Entity(
+    tableName = "facts",
+    foreignKeys = [
+        ForeignKey(
+            entity = ConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [Index("conversationId")],
+)
+data class FactEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val conversationId: Long,
+    val key: String,
+    val value: String,
+    val createdAt: Long,
+)
+
+@Entity(
+    tableName = "branches",
+    foreignKeys = [
+        ForeignKey(
+            entity = ConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [Index("conversationId")],
+)
+data class BranchEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val conversationId: Long,
+    val name: String,
+    val forkAtMessage: Int,
+    val snapshot: String,
+    val createdAt: Long,
+)

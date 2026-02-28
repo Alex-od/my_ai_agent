@@ -2,8 +2,8 @@ package ua.com.myaiagent
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import ua.com.myaiagent.data.context.StrategyType
 
 enum class Screen { CHAT, HISTORY }
 
@@ -57,10 +59,11 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     val topP by viewModel.topPInput.collectAsState()
     val maxTokens by viewModel.maxTokensInput.collectAsState()
     val stop by viewModel.stopInput.collectAsState()
-    val compressionEnabled by viewModel.compressionEnabled.collectAsState()
+    val selectedStrategy by viewModel.selectedStrategy.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var modelsExpanded by remember { mutableStateOf(false) }
+    var strategyExpanded by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf(Screen.CHAT) }
 
     ModalNavigationDrawer(
@@ -151,6 +154,69 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         }
                     }
 
+                    // Секция: Стратегия контекста
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { strategyExpanded = !strategyExpanded }
+                            .padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Стратегия контекста",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = if (strategyExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = selectedStrategy.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
+                    )
+                    AnimatedVisibility(visible = strategyExpanded) {
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            StrategyType.entries.forEach { strategyType ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.selectStrategy(strategyType)
+                                            strategyExpanded = false
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = strategyType == selectedStrategy,
+                                        onClick = {
+                                            viewModel.selectStrategy(strategyType)
+                                            strategyExpanded = false
+                                        },
+                                    )
+                                    Column(modifier = Modifier.padding(start = 4.dp)) {
+                                        Text(
+                                            text = strategyType.label,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        Text(
+                                            text = viewModel.descriptionFor(strategyType),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Секция: Параметры
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Text(
@@ -199,37 +265,6 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
-
-                    // Секция: Контекст
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    Text(
-                        text = "Контекст",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Сжатие контекста",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Text(
-                                text = "каждые ${AgentViewModel.COMPRESS_EVERY} сообщений, последние ${AgentViewModel.RECENT_KEEP} как есть",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = compressionEnabled,
-                            onCheckedChange = { viewModel.setCompressionEnabled(it) },
-                        )
-                    }
                 }
             }
         },
@@ -242,7 +277,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             Screen.CHAT -> Column {
                                 Text("Chat")
                                 Text(
-                                    text = selectedModel.displayName,
+                                    text = "${selectedModel.displayName} | ${selectedStrategy.label}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

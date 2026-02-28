@@ -7,11 +7,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import ua.com.myaiagent.data.ChatRepository
-import ua.com.myaiagent.data.ContextCompressor
 import ua.com.myaiagent.data.ConversationMessage
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.ResponsesRequestWithHistory
 import ua.com.myaiagent.data.UsageInfo
+import ua.com.myaiagent.data.context.BranchingStrategy
+import ua.com.myaiagent.data.context.ContextResult
+import ua.com.myaiagent.data.context.ContextStrategy
+import ua.com.myaiagent.data.context.SlidingWindowStrategy
+import ua.com.myaiagent.data.context.StickyFactsStrategy
+import ua.com.myaiagent.data.context.StrategyContext
+import ua.com.myaiagent.data.context.StrategyType
+import ua.com.myaiagent.data.context.SummaryStrategy
+import ua.com.myaiagent.data.local.BranchEntity
+import ua.com.myaiagent.data.local.FactEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -36,10 +45,10 @@ data class TokenStats(
     val totalOutput: Int = 0,
     val totalAll: Int = 0,
     val requestCount: Int = 0,
-    // суммаризация
-    val summaryInput: Int = 0,
-    val summaryOutput: Int = 0,
-    val summaryCount: Int = 0,
+    // стратегия (суммаризация / извлечение фактов)
+    val strategyInput: Int = 0,
+    val strategyOutput: Int = 0,
+    val strategyCallCount: Int = 0,
 )
 
 sealed class UiState {
@@ -79,12 +88,11 @@ val availableModels = listOf(
     AiModel("gpt-5.2-codex", "GPT-5.2 Codex", ModelCategory.STRONG),
 )
 
-class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRepository, private val compressor: ContextCompressor) : ViewModel() {
-
-    companion object {
-        const val RECENT_KEEP = 6
-        const val COMPRESS_EVERY = 10
-    }
+class AgentViewModel(
+    private val api: OpenAiApi,
+    private val repository: ChatRepository,
+    private val strategies: Map<StrategyType, ContextStrategy>,
+) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state
@@ -101,11 +109,20 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages
 
-    private val _compressionEnabled = MutableStateFlow(true)
-    val compressionEnabled: StateFlow<Boolean> = _compressionEnabled
+    private val _selectedStrategy = MutableStateFlow(StrategyType.SUMMARY)
+    val selectedStrategy: StateFlow<StrategyType> = _selectedStrategy
 
-    private val _compressedCount = MutableStateFlow(0)
-    val compressedCount: StateFlow<Int> = _compressedCount
+    private val _contextInfo = MutableStateFlow("")
+    val contextInfo: StateFlow<String> = _contextInfo
+
+    private val _facts = MutableStateFlow<List<FactEntity>>(emptyList())
+    val facts: StateFlow<List<FactEntity>> = _facts
+
+    private val _branches = MutableStateFlow<List<BranchEntity>>(emptyList())
+    val branches: StateFlow<List<BranchEntity>> = _branches
+
+    private val _activeBranchName = MutableStateFlow<String?>(null)
+    val activeBranchName: StateFlow<String?> = _activeBranchName
 
     val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
@@ -114,7 +131,15 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
     val stopInput = MutableStateFlow("")
 
     private var activeConversationId: Long? = null
-    private var lastCompressedAt: Int = 0
+
+    // ── Branch message store ──────────────────────────────────────────────────
+    // Separate in-memory message lists per branch. null key = main branch.
+    private val branchMessagesStore = mutableMapOf<Long?, MutableList<UiMessage>>()
+    private var currentBranchId: Long? = null
+
+    private val currentStrategy: ContextStrategy
+        get() = strategies[_selectedStrategy.value]
+            ?: strategies[StrategyType.SLIDING_WINDOW]!!
 
     init {
         viewModelScope.launch {
@@ -124,20 +149,20 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
             if (sys != null) systemPromptInput.value = sys.content
             val nonSystem = session.messages.filter { it.role != "system" }
             _messages.value = nonSystem.map { UiMessage(it.role, it.content) }
-            if (session.conversation.summary != null) {
-                val compressed = maxOf(0, nonSystem.size - RECENT_KEEP)
-                _compressedCount.value = compressed
-                lastCompressedAt = compressed
-            }
         }
     }
+
+    fun descriptionFor(type: StrategyType): String = strategies[type]?.description ?: ""
 
     fun selectModel(model: AiModel) {
         _selectedModel.value = model
     }
 
-    fun setCompressionEnabled(enabled: Boolean) {
-        _compressionEnabled.value = enabled
+    fun selectStrategy(type: StrategyType) {
+        _selectedStrategy.value = type
+        _contextInfo.value = ""
+        // Refresh branches/facts display when switching strategy
+        viewModelScope.launch { refreshStrategyData() }
     }
 
     fun send(prompt: String) {
@@ -164,11 +189,22 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 val updatedMessages = _messages.value + UiMessage("user", prompt)
                 _messages.value = updatedMessages
 
-                val apiMessages = if (_compressionEnabled.value && updatedMessages.size > RECENT_KEEP) {
-                    buildCompressedContext(conversationId, updatedMessages, systemPrompt, model.id)
-                } else {
-                    updatedMessages.map { ConversationMessage(it.role, it.content) }
+                // Use the selected strategy to build context
+                val strategyCtx = StrategyContext(conversationId, systemPrompt, model.id)
+                val contextResult = currentStrategy.buildContext(updatedMessages, strategyCtx)
+                _contextInfo.value = contextResult.info
+
+                // Track strategy API usage if any
+                contextResult.strategyUsage?.let { usage ->
+                    val prev = _tokenStats.value
+                    _tokenStats.value = prev.copy(
+                        strategyInput = prev.strategyInput + usage.inputTokens,
+                        strategyOutput = prev.strategyOutput + usage.outputTokens,
+                        strategyCallCount = prev.strategyCallCount + 1,
+                    )
                 }
+
+                val apiMessages = contextResult.messages
                 requestJson = try {
                     prettyJson.encodeToString(ResponsesRequestWithHistory(
                         model = model.id,
@@ -194,7 +230,6 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 Log.d("AgentViewModel", "Response: ${apiResult.text}")
                 Log.d("AgentViewModel", "Usage: ${apiResult.usage}")
 
-                // обновляем статистику токенов
                 val usage = apiResult.usage
                 if (usage != null) {
                     val prev = _tokenStats.value
@@ -231,6 +266,9 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
                 _messages.value = _messages.value + UiMessage("assistant", apiResult.text)
                 _state.value = UiState.Idle
 
+                // Refresh facts/branches after response
+                refreshStrategyData()
+
                 val status = if (apiResult.truncated) "Truncated (max_output_tokens)" else "Success"
                 _lastRequestLog.value = buildLog(
                     timestamp, model, prompt, systemPrompt,
@@ -254,57 +292,68 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
         }
     }
 
-    private suspend fun buildCompressedContext(
-        conversationId: Long,
-        messages: List<UiMessage>,
-        systemPrompt: String?,
-        modelId: String,
-    ): List<ConversationMessage> {
-        val older = messages.dropLast(RECENT_KEEP)
-        val recent = messages.takeLast(RECENT_KEEP)
-        val olderCount = older.size
+    // ── Branch operations ────────────────────────────────────────────────────
 
-        _compressedCount.value = olderCount
-
-        var currentSummary = repository.getSummary(conversationId)
-
-        if (olderCount >= lastCompressedAt + COMPRESS_EVERY) {
-            try {
-                val summaryResult = compressor.compress(older, systemPrompt, modelId)
-                currentSummary = summaryResult.text
-                lastCompressedAt = olderCount
-                repository.saveSummary(conversationId, currentSummary)
-                summaryResult.usage?.let { usage ->
-                    val prev = _tokenStats.value
-                    _tokenStats.value = prev.copy(
-                        summaryInput = prev.summaryInput + usage.inputTokens,
-                        summaryOutput = prev.summaryOutput + usage.outputTokens,
-                        summaryCount = prev.summaryCount + 1,
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e("AgentViewModel", "Summary generation failed: ${e.message}", e)
-            }
-        }
-
-        val recentMessages = recent.map { ConversationMessage(it.role, it.content) }
-        return if (currentSummary != null) {
-            listOf(ConversationMessage("system", "Previous conversation summary:\n$currentSummary")) + recentMessages
-        } else {
-            recentMessages
+    fun createBranch(name: String) {
+        val conversationId = activeConversationId ?: return
+        val branchStrategy = strategies[StrategyType.BRANCHING] as? BranchingStrategy ?: return
+        viewModelScope.launch {
+            // Save current branch messages before forking
+            branchMessagesStore[currentBranchId] = _messages.value.toMutableList()
+            // Create branch record in DB (stores snapshot)
+            val branch = branchStrategy.createBranch(conversationId, name, _messages.value)
+            // New branch starts from same fork point (copy)
+            branchMessagesStore[branch.id] = _messages.value.toMutableList()
+            currentBranchId = branch.id
+            _activeBranchName.value = name
+            refreshStrategyData()
         }
     }
+
+    fun switchBranch(branchId: Long?) {
+        val branchStrategy = strategies[StrategyType.BRANCHING] as? BranchingStrategy ?: return
+        // Save current branch before leaving
+        branchMessagesStore[currentBranchId] = _messages.value.toMutableList()
+        // Restore target branch messages
+        _messages.value = branchMessagesStore[branchId] ?: emptyList()
+        currentBranchId = branchId
+        branchStrategy.switchBranch(branchId)
+        _activeBranchName.value = if (branchId != null) {
+            _branches.value.find { it.id == branchId }?.name
+        } else null
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
 
     fun startNewChat() {
         viewModelScope.launch {
             repository.startNewChat()
             activeConversationId = null
             _messages.value = emptyList()
-            _compressedCount.value = 0
-            lastCompressedAt = 0
+            _contextInfo.value = ""
+            _facts.value = emptyList()
+            _branches.value = emptyList()
+            _activeBranchName.value = null
+            branchMessagesStore.clear()
+            currentBranchId = null
             systemPromptInput.value = ""
             _tokenStats.value = TokenStats()
             _state.value = UiState.Idle
+            // Reset strategy state
+            (strategies[StrategyType.SUMMARY] as? SummaryStrategy)?.resetCompression()
+            (strategies[StrategyType.STICKY_FACTS] as? StickyFactsStrategy)?.resetExtraction()
+            (strategies[StrategyType.BRANCHING] as? BranchingStrategy)?.resetBranch()
+        }
+    }
+
+    private suspend fun refreshStrategyData() {
+        val conversationId = activeConversationId ?: return
+        try {
+            val dao = repository.dao
+            _facts.value = dao.getFactsForConversation(conversationId)
+            _branches.value = dao.getBranchesForConversation(conversationId)
+        } catch (e: Exception) {
+            Log.e("AgentViewModel", "Failed to refresh strategy data: ${e.message}", e)
         }
     }
 
@@ -326,6 +375,7 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
         appendLine("=== Request Log ===")
         appendLine("Time:       $timestamp")
         appendLine("Model:      ${model.displayName} (${model.id})")
+        appendLine("Strategy:   ${_selectedStrategy.value.label}")
         appendLine("Duration:   ${durationMs}ms")
         appendLine()
         appendLine("--- Parameters ---")
@@ -341,6 +391,9 @@ class AgentViewModel(private val api: OpenAiApi, private val repository: ChatRep
             appendLine("Total tokens:  ${usage.totalTokens}")
             appendLine()
         }
+        appendLine("--- Context Info ---")
+        appendLine(_contextInfo.value)
+        appendLine()
         appendLine("--- Messages ---")
         if (systemPrompt != null) appendLine("System: $systemPrompt")
         appendLine("User: $prompt")

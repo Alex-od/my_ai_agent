@@ -16,9 +16,17 @@ import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ContextCompressor
 import ua.com.myaiagent.data.OpenAiApi
+import ua.com.myaiagent.data.context.BranchingStrategy
+import ua.com.myaiagent.data.context.ContextStrategy
+import ua.com.myaiagent.data.context.SlidingWindowStrategy
+import ua.com.myaiagent.data.context.StickyFactsStrategy
+import ua.com.myaiagent.data.context.StrategyType
+import ua.com.myaiagent.data.context.SummaryStrategy
 import ua.com.myaiagent.data.local.AppDatabase
 import ua.com.myaiagent.data.local.MIGRATION_1_2
 import ua.com.myaiagent.data.local.MIGRATION_2_3
+import ua.com.myaiagent.data.local.MIGRATION_3_4
+import ua.com.myaiagent.data.local.MIGRATION_4_5
 
 val appModule = module {
 
@@ -47,7 +55,7 @@ val appModule = module {
 
     single<AppDatabase> {
         Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 
@@ -56,6 +64,27 @@ val appModule = module {
     single { ChatRepository(get()) }
 
     single { ContextCompressor(get()) }
+
+    // ── Context Strategies ───────────────────────────────────────────────────
+
+    single<SlidingWindowStrategy> { SlidingWindowStrategy() }
+
+    single<SummaryStrategy> { SummaryStrategy(get(), get()) }
+
+    single<StickyFactsStrategy> { StickyFactsStrategy(get(), get()) }
+
+    single<BranchingStrategy> { BranchingStrategy(get()) }
+
+    single<Map<StrategyType, ContextStrategy>> {
+        mapOf(
+            StrategyType.SLIDING_WINDOW to get<SlidingWindowStrategy>(),
+            StrategyType.SUMMARY to get<SummaryStrategy>(),
+            StrategyType.STICKY_FACTS to get<StickyFactsStrategy>(),
+            StrategyType.BRANCHING to get<BranchingStrategy>(),
+        )
+    }
+
+    // ── ViewModels ───────────────────────────────────────────────────────────
 
     viewModel { AgentViewModel(get(), get(), get()) }
 

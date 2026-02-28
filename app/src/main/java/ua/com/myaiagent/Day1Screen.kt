@@ -1,9 +1,13 @@
 package ua.com.myaiagent
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,8 +23,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,7 +50,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import org.koin.androidx.compose.koinViewModel
+import ua.com.myaiagent.data.context.StrategyType
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
     val systemPrompt by viewModel.systemPromptInput.collectAsState()
@@ -52,11 +60,16 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val lastLog by viewModel.lastRequestLog.collectAsState()
     val tokenStats by viewModel.tokenStats.collectAsState()
-    val compressionEnabled by viewModel.compressionEnabled.collectAsState()
-    val compressedCount by viewModel.compressedCount.collectAsState()
+    val contextInfo by viewModel.contextInfo.collectAsState()
+    val selectedStrategy by viewModel.selectedStrategy.collectAsState()
+    val facts by viewModel.facts.collectAsState()
+    val branches by viewModel.branches.collectAsState()
+    val activeBranchName by viewModel.activeBranchName.collectAsState()
     var query by remember { mutableStateOf("") }
     var showLogs by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
+    var showBranchDialog by remember { mutableStateOf(false) }
+    var showFactsExpanded by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -118,8 +131,27 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
         val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
         SpeakButton(text = lastAssistantText)
 
+        // Branch controls (visible when Branching strategy is selected)
+        if (selectedStrategy == StrategyType.BRANCHING) {
+            BranchControls(
+                branches = branches,
+                activeBranchName = activeBranchName,
+                onCreateBranch = { showBranchDialog = true },
+                onSwitchBranch = { viewModel.switchBranch(it) },
+            )
+        }
+
+        // Facts panel (visible when StickyFacts strategy is selected and has facts)
+        if (selectedStrategy == StrategyType.STICKY_FACTS && facts.isNotEmpty()) {
+            FactsPanel(
+                facts = facts.map { it.key to it.value },
+                expanded = showFactsExpanded,
+                onToggle = { showFactsExpanded = !showFactsExpanded },
+            )
+        }
+
         if (tokenStats.requestCount > 0) {
-            TokenStatsBar(tokenStats, compressionEnabled, compressedCount)
+            TokenStatsBar(tokenStats, contextInfo, selectedStrategy)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -155,6 +187,7 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
         }
     }
 
+    // Log dialog
     if (showLogs) {
         AlertDialog(
             onDismissRequest = { showLogs = false },
@@ -194,10 +227,148 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
             },
         )
     }
+
+    // Branch creation dialog
+    if (showBranchDialog) {
+        var branchName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showBranchDialog = false },
+            title = { Text("Создать ветку") },
+            text = {
+                OutlinedTextField(
+                    value = branchName,
+                    onValueChange = { branchName = it },
+                    label = { Text("Название ветки") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (branchName.isNotBlank()) {
+                            viewModel.createBranch(branchName.trim())
+                            showBranchDialog = false
+                        }
+                    },
+                ) {
+                    Text("Создать")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBranchDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BranchControls(
+    branches: List<ua.com.myaiagent.data.local.BranchEntity>,
+    activeBranchName: String?,
+    onCreateBranch: () -> Unit,
+    onSwitchBranch: (Long?) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (activeBranchName != null) "Ветка: $activeBranchName" else "Основная ветка",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            AssistChip(
+                onClick = onCreateBranch,
+                label = { Text("+ Ветка", style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+        if (branches.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                FilterChip(
+                    selected = activeBranchName == null,
+                    onClick = { onSwitchBranch(null) },
+                    label = { Text("Основная", style = MaterialTheme.typography.labelSmall) },
+                )
+                branches.forEach { branch ->
+                    FilterChip(
+                        selected = branch.name == activeBranchName,
+                        onClick = { onSwitchBranch(branch.id) },
+                        label = { Text(branch.name, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun TokenStatsBar(stats: TokenStats, compressionEnabled: Boolean, compressedCount: Int) {
+private fun FactsPanel(
+    facts: List<Pair<String, String>>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .clickable { onToggle() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = "Факты (${facts.size})  ${if (expanded) "▲" else "▼"}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+        )
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.padding(top = 4.dp)) {
+                facts.forEach { (key, value) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = key,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier.widthIn(min = 80.dp),
+                        )
+                        Text(
+                            text = ": $value",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TokenStatsBar(stats: TokenStats, contextInfo: String, strategy: StrategyType) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -221,7 +392,7 @@ private fun TokenStatsBar(stats: TokenStats, compressionEnabled: Boolean, compre
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    text = "⚠ Ответ обрезан: превышен лимит токенов",
+                    text = "Ответ обрезан: превышен лимит токенов",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
@@ -258,25 +429,25 @@ private fun TokenStatsBar(stats: TokenStats, compressionEnabled: Boolean, compre
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        if (compressionEnabled) {
+        // Context strategy info
+        if (contextInfo.isNotBlank()) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = if (compressedCount > 0) "Контекст: сжато $compressedCount сообщ."
-                           else "Контекст: полный (ещё не сжато)",
+                    text = "${strategy.label}: $contextInfo",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary,
                 )
-                if (stats.summaryCount > 0) {
-                    Text(
-                        text = "сумм: in ${stats.summaryInput}  out ${stats.summaryOutput}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
+            }
+            if (stats.strategyCallCount > 0) {
+                Text(
+                    text = "API вызовов: ${stats.strategyCallCount}  in: ${stats.strategyInput}  out: ${stats.strategyOutput}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
             }
         }
     }

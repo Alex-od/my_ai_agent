@@ -12,11 +12,10 @@ import ua.com.myaiagent.data.local.ChatDao
  */
 class BranchingStrategy(
     private val dao: ChatDao,
-    private val recentKeep: Int = 10,
 ) : ContextStrategy {
 
     override val type = StrategyType.BRANCHING
-    override val description = "Ветки, окно $recentKeep сообщений"
+    override val description = "Независимые ветки диалога"
 
     private var activeBranchId: Long? = null
 
@@ -27,23 +26,18 @@ class BranchingStrategy(
         val branch = activeBranchId?.let { dao.getBranch(it) }
 
         val messages = mutableListOf<ConversationMessage>()
-        var info: String
+        val info: String
 
         if (branch != null) {
-            // Include the branch snapshot as context preamble
             messages.add(
                 ConversationMessage("system", "Context from branch \"${branch.name}\":\n${branch.snapshot}")
             )
-            // Only show messages after the fork point
             val afterFork = allMessages.drop(branch.forkAtMessage)
-            val recent = afterFork.takeLast(recentKeep)
-            messages.addAll(recent.map { ConversationMessage(it.role, it.content) })
-            info = "Ветка: ${branch.name}, от сообщ. #${branch.forkAtMessage}"
+            messages.addAll(afterFork.map { ConversationMessage(it.role, it.content) })
+            info = "Ветка: ${branch.name}, сообщ. после форка: ${afterFork.size}"
         } else {
-            // No active branch — behave like sliding window
-            val recent = allMessages.takeLast(recentKeep)
-            messages.addAll(recent.map { ConversationMessage(it.role, it.content) })
-            info = "Основная ветка, окно: $recentKeep"
+            messages.addAll(allMessages.map { ConversationMessage(it.role, it.content) })
+            info = "Основная ветка, всего сообщ.: ${allMessages.size}"
         }
 
         return ContextResult(

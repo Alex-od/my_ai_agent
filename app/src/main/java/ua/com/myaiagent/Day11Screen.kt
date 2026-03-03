@@ -3,6 +3,7 @@ package ua.com.myaiagent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -50,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,6 +88,7 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
     val snapshot by viewModel.memorySnapshot.collectAsState()
     val routerLog by viewModel.routerLog.collectAsState()
     val lastSystemPrompt by viewModel.lastSystemPrompt.collectAsState()
+    val lastRequestLog by viewModel.lastRequestLog.collectAsState()
     val activeProfile by viewModel.profileFlow.collectAsState()
 
     var userInput by remember { mutableStateOf("") }
@@ -94,6 +99,8 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
     var showTaskDialog by remember { mutableStateOf(false) }
     var taskInput by remember { mutableStateOf("") }
     var showPromptDialog by remember { mutableStateOf(false) }
+    var showLogsDialog by remember { mutableStateOf(false) }
+    var logTab by remember { mutableIntStateOf(0) }
     var showCustomEditor by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
@@ -139,12 +146,12 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    if (lastSystemPrompt.isNotBlank()) {
+                    if (lastRequestLog != null) {
                         TextButton(
-                            onClick = { showPromptDialog = true },
+                            onClick = { showLogsDialog = true; logTab = 0 },
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         ) {
-                            Text("Промпт", style = MaterialTheme.typography.labelSmall)
+                            Text("Логи", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     IconButton(
@@ -413,22 +420,37 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
         )
     }
 
-    // ── Диалог системного промпта ─────────────────────────────────────────────
-    if (showPromptDialog) {
+    // ── Диалог логов (3 вкладки: Лог | Промпт | Маршрут) ────────────────────
+    if (showLogsDialog) {
         AlertDialog(
-            onDismissRequest = { showPromptDialog = false },
-            title = { Text("Системный промпт") },
+            onDismissRequest = { showLogsDialog = false },
+            title = { Text("Логи") },
             text = {
-                SelectionContainer {
-                    Text(
-                        text = lastSystemPrompt,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
+                Column {
+                    PrimaryTabRow(selectedTabIndex = logTab) {
+                        Tab(selected = logTab == 0, onClick = { logTab = 0 }, text = { Text("Лог") })
+                        Tab(selected = logTab == 1, onClick = { logTab = 1 }, text = { Text("JSON") })
+                        Tab(selected = logTab == 2, onClick = { logTab = 2 }, text = { Text("Промпт") })
+                        Tab(selected = logTab == 3, onClick = { logTab = 3 }, text = { Text("Маршрут") })
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SelectionContainer {
+                        Text(
+                            text = when (logTab) {
+                                0 -> lastRequestLog?.content ?: ""
+                                1 -> lastRequestLog?.rawJson ?: ""
+                                2 -> lastSystemPrompt.ifBlank { "Промпт не сформирован" }
+                                else -> routerLog.ifBlank { "Маршрутизация не выполнялась" }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                        )
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showPromptDialog = false }) { Text("Закрыть") }
+                TextButton(onClick = { showLogsDialog = false }) { Text("Закрыть") }
             },
         )
     }

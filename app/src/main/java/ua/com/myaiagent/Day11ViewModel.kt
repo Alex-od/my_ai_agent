@@ -7,7 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import ua.com.myaiagent.data.ConversationMessage
+import ua.com.myaiagent.data.ResponsesRequestWithHistory
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.memory.MemoryMessage
 import ua.com.myaiagent.data.memory.MemorySnapshot
@@ -55,6 +63,10 @@ class Day11ViewModel(
     private val _lastSystemPrompt = MutableStateFlow("")
     val lastSystemPrompt: StateFlow<String> = _lastSystemPrompt.asStateFlow()
 
+    // Лог последнего запроса (аналог RequestLog из AgentViewModel)
+    private val _lastRequestLog = MutableStateFlow<RequestLog?>(null)
+    val lastRequestLog: StateFlow<RequestLog?> = _lastRequestLog.asStateFlow()
+
     fun send(prompt: String, modelId: String = "gpt-4.1-mini") {
         if (prompt.isBlank()) return
         viewModelScope.launch {
@@ -64,6 +76,9 @@ class Day11ViewModel(
             // Добавляем сообщение пользователя в UI-список немедленно
             _chatMessages.value = _chatMessages.value + MemoryMessage("user", prompt)
 
+            val prettyJson = Json { prettyPrint = true }
+            val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+            var requestJson = ""
             try {
                 // Шаг 1: Маршрутизация — Router классифицирует и сохраняет в нужный слой
                 memoryStore.processAndRoute(prompt)
@@ -78,12 +93,24 @@ class Day11ViewModel(
                     ConversationMessage(it.role, it.content)
                 }
 
+                requestJson = try {
+                    prettyJson.encodeToString(
+                        ResponsesRequestWithHistory(
+                            model = modelId,
+                            input = apiMessages,
+                            instructions = systemPrompt.takeIf { it.isNotBlank() },
+                        )
+                    )
+                } catch (_: Exception) { "" }
+
                 // Шаг 4: Вызов API с обогащённым системным промптом
+                val start = System.currentTimeMillis()
                 val result = openAiApi.askWithHistory(
                     messages = apiMessages,
                     model = modelId,
                     systemPrompt = systemPrompt,
                 )
+                val duration = System.currentTimeMillis() - start
 
                 // Шаг 5: Сохраняем ответ в Short-Term память
                 memoryStore.addAssistantMessage(result.text)
@@ -91,8 +118,54 @@ class Day11ViewModel(
                 // Обновляем UI-список
                 _chatMessages.value = _chatMessages.value + MemoryMessage("assistant", result.text)
 
+                // Строим лог запроса
+                val profile = profileStore.profile
+                val responseJson = try {
+                    prettyJson.encodeToString(buildJsonObject {
+                        put("text", result.text)
+                        put("truncated", result.truncated)
+                        result.usage?.let { u ->
+                            put("usage", buildJsonObject {
+                                put("input_tokens", u.inputTokens)
+                                put("output_tokens", u.outputTokens)
+                                put("total_tokens", u.totalTokens)
+                            })
+                        }
+                    })
+                } catch (_: Exception) { "" }
+
+                _lastRequestLog.value = RequestLog(
+                    content = buildString {
+                        appendLine("=== Memory Agent Log ===")
+                        appendLine("Time:     $timestamp")
+                        appendLine("Model:    $modelId")
+                        appendLine("Profile:  ${profile.name} (${profile.responseStyle.label} · ${profile.expertiseLevel.label})")
+                        appendLine("Duration: ${duration}ms")
+                        result.usage?.let { u ->
+                            appendLine("Tokens:   in=${u.inputTokens}  out=${u.outputTokens}  total=${u.totalTokens}")
+                        }
+                        appendLine()
+                        appendLine("--- Messages sent (${apiMessages.size}) ---")
+                        apiMessages.forEach { m ->
+                            val preview = m.content.take(80).replace('\n', ' ')
+                            appendLine("[${m.role}] $preview${if (m.content.length > 80) "…" else ""}")
+                        }
+                        appendLine()
+                        appendLine("--- Router ---")
+                        appendLine(memoryStore.routerLog.value.ifBlank { "no classifications" })
+                        appendLine()
+                        appendLine("--- Response preview ---")
+                        appendLine(result.text.take(200) + if (result.text.length > 200) "…" else "")
+                    },
+                    rawJson = "// Request\n$requestJson\n\n// Response\n$responseJson",
+                )
+
             } catch (e: Exception) {
                 _error.value = e.message ?: "Неизвестная ошибка"
+                _lastRequestLog.value = RequestLog(
+                    content = "[$timestamp] Error: ${e.message}",
+                    rawJson = if (requestJson.isNotEmpty()) "// Request\n$requestJson\n\n// Error: ${e.message}" else "// Error: ${e.message}",
+                )
             } finally {
                 _isLoading.value = false
             }

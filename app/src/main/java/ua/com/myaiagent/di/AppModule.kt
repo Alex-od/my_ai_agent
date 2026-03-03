@@ -24,6 +24,7 @@ import ua.com.myaiagent.data.context.StickyFactsStrategy
 import ua.com.myaiagent.data.context.StrategyType
 import ua.com.myaiagent.data.context.SummaryStrategy
 import ua.com.myaiagent.data.local.AppDatabase
+import ua.com.myaiagent.data.memory.UserProfileStore
 import ua.com.myaiagent.data.local.MIGRATION_1_2
 import ua.com.myaiagent.data.local.MIGRATION_2_3
 import ua.com.myaiagent.data.local.MIGRATION_3_4
@@ -87,9 +88,11 @@ val appModule = module {
 
     // ── ViewModels ───────────────────────────────────────────────────────────
 
+    single { UserProfileStore(androidContext()) }
+
     viewModel { AgentViewModel(get(), get(), get()) }
 
     viewModel { HistoryViewModel(get()) }
 
-    viewModel { Day11ViewModel(get(), androidContext()) }
+    viewModel { Day11ViewModel(get(), androidContext(), get()) }
 }

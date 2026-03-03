@@ -12,6 +12,8 @@ import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.memory.MemoryMessage
 import ua.com.myaiagent.data.memory.MemorySnapshot
 import ua.com.myaiagent.data.memory.MemoryStore
+import ua.com.myaiagent.data.memory.UserProfile
+import ua.com.myaiagent.data.memory.UserProfileStore
 
 /**
  * ViewModel для Дня 11 — Модель памяти ассистента.
@@ -26,9 +28,12 @@ import ua.com.myaiagent.data.memory.MemoryStore
 class Day11ViewModel(
     private val openAiApi: OpenAiApi,
     context: Context,
+    val profileStore: UserProfileStore,
 ) : ViewModel() {
 
     val memoryStore = MemoryStore(context)
+
+    val profileFlow: StateFlow<UserProfile> = profileStore.profileFlow
 
     // Полный список сообщений для отображения в чате (без ограничений sliding window)
     private val _chatMessages = MutableStateFlow<List<MemoryMessage>>(emptyList())
@@ -63,8 +68,8 @@ class Day11ViewModel(
                 // Шаг 1: Маршрутизация — Router классифицирует и сохраняет в нужный слой
                 memoryStore.processAndRoute(prompt)
 
-                // Шаг 2: Сборка системного промпта из всех слоёв памяти
-                val systemPrompt = memoryStore.buildSystemPrompt()
+                // Шаг 2: Персонализированный системный промпт (профиль → память)
+                val systemPrompt = buildPersonalizedSystemPrompt()
                 _lastSystemPrompt.value = systemPrompt
 
                 // Шаг 3: Формируем историю сообщений для API
@@ -93,6 +98,32 @@ class Day11ViewModel(
             }
         }
     }
+
+    /**
+     * Строит персонализированный системный промпт.
+     * Порядок приоритетов:
+     *   1. Профиль пользователя (стиль, уровень, ограничения)
+     *   2. Working Memory (текущая задача)
+     *   3. Long-Term Memory (профиль, предпочтения)
+     *   4. Summary краткосрочной памяти
+     */
+    fun buildPersonalizedSystemPrompt(): String = buildString {
+        append("You are a personalized AI assistant. Adapt ALL your responses to the user profile below.\n\n")
+        append(profileStore.profile.toSystemPromptSection())
+        val memorySections = memoryStore.buildSystemPrompt()
+        // buildSystemPrompt() returns a default line if nothing stored — skip that in favour of our header
+        val memoryBody = memorySections
+            .removePrefix("You are a helpful AI assistant.")
+            .removePrefix("You are a helpful AI assistant with memory.\nUse the following context to personalize your responses.\n\n")
+            .trim()
+        if (memoryBody.isNotBlank()) {
+            append("\n")
+            append(memoryBody)
+        }
+    }
+
+    /** Переключает активный профиль пользователя. */
+    fun setProfile(profile: UserProfile) = profileStore.setProfile(profile)
 
     /** Явная установка текущей задачи (Working Memory). */
     fun setTask(name: String) {

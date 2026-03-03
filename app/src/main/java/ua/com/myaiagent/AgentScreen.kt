@@ -101,7 +101,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                     NavigationDrawerItem(
-                        label = { Text("День 11: Память") },
+                        label = { Text("День 11-12: Память + Профиль") },
                         selected = currentScreen == Screen.DAY11,
                         icon = { Icon(Icons.Default.Layers, contentDescription = null) },
                         onClick = {
@@ -295,9 +295,9 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             }
                             Screen.HISTORY -> Text("История")
                             Screen.DAY11 -> Column {
-                                Text("Память агента")
+                                Text("Память + Профиль")
                                 Text(
-                                    text = "День 11 | Short / Working / Long-Term",
+                                    text = "День 11-12 | Memory · Personalization",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

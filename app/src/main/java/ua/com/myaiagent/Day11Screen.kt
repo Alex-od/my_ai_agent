@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -133,13 +134,15 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                     Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(androidx.compose.foundation.layout.IntrinsicSize.Max),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             // 🟢 Short-Term
                             MemoryLayerCard(
                                 color = ShortTermColor,
-                                label = "🟢 Краткосрочная",
+                                label = "Краткосрочная",
                                 summary = buildString {
                                     append("Сообщений: ${snapshot.shortTermMessages.size}")
                                     if (snapshot.shortTermEvictedCount > 0) {
@@ -151,13 +154,13 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                                 },
                                 isExpanded = shortTermExpanded,
                                 onToggle = { shortTermExpanded = !shortTermExpanded },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
 
                             // 🟡 Working
                             MemoryLayerCard(
                                 color = WorkingColor,
-                                label = "🟡 Рабочая",
+                                label = "Рабочая",
                                 summary = buildString {
                                     if (snapshot.workingTask != null) {
                                         append(snapshot.workingTask!!.take(20))
@@ -170,19 +173,19 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                                 },
                                 isExpanded = workingExpanded,
                                 onToggle = { workingExpanded = !workingExpanded },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
 
                             // 🔵 Long-Term
                             MemoryLayerCard(
                                 color = LongTermColor,
-                                label = "🔵 Долговременная",
+                                label = "Долговременная",
                                 summary = buildString {
                                     val total = snapshot.longTermProfile.size +
                                         snapshot.longTermPreferences.size +
                                         snapshot.longTermKnowledge.size
                                     if (total > 0) {
-                                        append("$total фактов")
+                                        append("фактов: $total")
                                         if (snapshot.longTermProfile.isNotEmpty()) {
                                             append("\n👤 ${snapshot.longTermProfile.size}")
                                         }
@@ -195,7 +198,7 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                                 },
                                 isExpanded = longTermExpanded,
                                 onToggle = { longTermExpanded = !longTermExpanded },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                         }
 
@@ -434,6 +437,8 @@ private fun MemoryLayerCard(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -612,7 +617,7 @@ private fun LongTermDetails(snapshot: MemorySnapshot, onClear: () -> Unit) {
             }
 
             Text(
-                text = "💾 Сохранено в SharedPreferences",
+                text = "💾 Сохранено в файл (long_term_memory.json)",
                 style = MaterialTheme.typography.labelSmall,
                 color = LongTermColor.copy(alpha = 0.7f),
                 modifier = Modifier.padding(top = 4.dp),

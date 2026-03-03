@@ -49,6 +49,10 @@ class MemoryStore(private val context: Context) {
     private val _routerLog = MutableStateFlow("")
     val routerLog: StateFlow<String> = _routerLog.asStateFlow()
 
+    private val memoryFile by lazy {
+        java.io.File(context.filesDir, "long_term_memory.json")
+    }
+
     init {
         loadLongTerm()
         refreshSnapshot()
@@ -165,7 +169,7 @@ class MemoryStore(private val context: Context) {
 
     fun clearLongTerm() {
         longTerm.clear()
-        prefs.edit().remove("data").apply()
+        memoryFile.delete()
         refreshSnapshot()
     }
 
@@ -173,7 +177,7 @@ class MemoryStore(private val context: Context) {
         shortTerm.clear()
         working.clear()
         longTerm.clear()
-        prefs.edit().remove("data").apply()
+        memoryFile.delete()
         _routerLog.value = ""
         refreshSnapshot()
     }
@@ -241,21 +245,17 @@ class MemoryStore(private val context: Context) {
 
     // ── Персистентность LongTermMemory ────────────────────────────────────────
 
-    private val prefs by lazy {
-        context.getSharedPreferences("long_term_memory", Context.MODE_PRIVATE)
-    }
-
     private fun saveLongTerm() {
         val json = JSONObject().apply {
             put("profile", JSONObject(longTerm.userProfile as Map<*, *>))
             put("preferences", JSONObject(longTerm.preferences as Map<*, *>))
             put("knowledge", JSONObject(longTerm.knowledge as Map<*, *>))
         }
-        prefs.edit().putString("data", json.toString()).apply()
+        memoryFile.writeText(json.toString())
     }
 
     private fun loadLongTerm() {
-        val str = prefs.getString("data", null) ?: return
+        val str = if (memoryFile.exists()) memoryFile.readText() else return
         try {
             val json = JSONObject(str)
             json.optJSONObject("profile")?.let { obj ->

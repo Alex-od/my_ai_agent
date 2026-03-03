@@ -50,11 +50,11 @@ class MemoryRouter {
     // ── Паттерны для TASK_DATA (Рабочая память) ───────────────────────────────
 
     private val taskPatterns = listOf(
-        Regex("(?:платформа|platform)\\s*[:\\-—]\\s*(.+)", RegexOption.IGNORE_CASE) to "platform",
-        Regex("(?:язык|language)\\s*[:\\-—]\\s*(.+)", RegexOption.IGNORE_CASE) to "language",
-        Regex("(?:дедлайн|deadline|срок)\\s*[:\\-—]\\s*(.+)", RegexOption.IGNORE_CASE) to "deadline",
-        Regex("(?:стек|stack|технологии|tech)\\s*[:\\-—]\\s*(.+)", RegexOption.IGNORE_CASE) to "tech_stack",
-        Regex("(?:целевая аудитория|аудитория|target)\\s*[:\\-—]\\s*(.+)", RegexOption.IGNORE_CASE) to "target_audience",
+        Regex("(?:платформа|platform)\\s*(?:[:\\-—]\\s*)?(.+)", RegexOption.IGNORE_CASE) to "platform",
+        Regex("(?:язык|language)\\s*(?:[:\\-—]\\s*)?(.+)", RegexOption.IGNORE_CASE) to "language",
+        Regex("(?:дедлайн|deadline|срок)\\s*(?:[:\\-—]\\s*)?(.+)", RegexOption.IGNORE_CASE) to "deadline",
+        Regex("(?:стек|stack|технологии|tech)\\s*(?:[:\\-—]\\s*)?(.+)", RegexOption.IGNORE_CASE) to "tech_stack",
+        Regex("(?:целевая аудитория|аудитория|target)\\s*(?:[:\\-—]\\s*)?(.+)", RegexOption.IGNORE_CASE) to "target_audience",
         Regex("(?:проект|задача|приложение|app)\\s+(?:для|про|о|—|:|-)\\s*(.+)", RegexOption.IGNORE_CASE) to "project_topic",
     )
 
@@ -128,8 +128,10 @@ class MemoryRouter {
     private fun inferPreferenceKey(message: String, value: String): String {
         val keywords = mapOf(
             "язык" to "language", "language" to "language",
-            "kotlin" to "language", "swift" to "language",
-            "python" to "language", "java" to "language",
+            "kotlin" to "language", "котлин" to "language",
+            "swift" to "language", "свифт" to "language",
+            "python" to "language", "питон" to "language",
+            "java" to "language", "джава" to "language",
             "dart" to "language", "typescript" to "language",
             "архитектур" to "architecture", "mvvm" to "architecture",
             "mvi" to "architecture", "mvc" to "architecture",
@@ -142,7 +144,7 @@ class MemoryRouter {
         )
         return keywords.entries
             .firstOrNull { (kw, _) -> kw in message || kw in value }
-            ?.value ?: "general"
+            ?.value ?: value.take(20)
     }
 
     /** Человекочитаемое объяснение классификации для отображения в UI. */

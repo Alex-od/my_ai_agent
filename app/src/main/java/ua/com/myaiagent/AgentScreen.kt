@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Switch
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
 
-enum class Screen { CHAT, HISTORY }
+enum class Screen { CHAT, HISTORY, DAY11 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +96,16 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         icon = { Icon(Icons.Default.History, contentDescription = null) },
                         onClick = {
                             currentScreen = Screen.HISTORY
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("День 11: Память") },
+                        selected = currentScreen == Screen.DAY11,
+                        icon = { Icon(Icons.Default.Layers, contentDescription = null) },
+                        onClick = {
+                            currentScreen = Screen.DAY11
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -283,10 +294,18 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                 )
                             }
                             Screen.HISTORY -> Text("История")
+                            Screen.DAY11 -> Column {
+                                Text("Память агента")
+                                Text(
+                                    text = "День 11 | Short / Working / Long-Term",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        if (currentScreen == Screen.HISTORY) {
+                        if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11) {
                             IconButton(onClick = { currentScreen = Screen.CHAT }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                             }
@@ -303,6 +322,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                 when (currentScreen) {
                     Screen.CHAT -> ChatScreen(viewModel)
                     Screen.HISTORY -> HistoryScreen()
+                    Screen.DAY11 -> Day11Screen()
                 }
             }
         }

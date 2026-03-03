@@ -12,6 +12,7 @@ import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
+import ua.com.myaiagent.Day11ViewModel
 import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ContextCompressor
@@ -89,4 +90,6 @@ val appModule = module {
     viewModel { AgentViewModel(get(), get(), get()) }
 
     viewModel { HistoryViewModel(get()) }
+
+    viewModel { Day11ViewModel(get(), androidContext()) }
 }

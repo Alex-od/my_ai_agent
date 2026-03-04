@@ -11,6 +11,11 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import ua.com.myaiagent.data.tasks.ToolDefinition
+
+private val responseJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 // ── Request ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +58,37 @@ data class ResponsesResponse(
 data class OutputItem(
     val type: String,
     val content: List<ContentItem> = emptyList(),
+    // Present when type == "function_call"
+    val id: String = "",
+    @SerialName("call_id") val callId: String = "",
+    val name: String = "",
+    val arguments: String = "",
+)
+
+// ── Tool Calling Models ───────────────────────────────────────────────────────
+
+@Serializable
+data class ToolCall(
+    val id: String = "",
+    @SerialName("call_id") val callId: String = "",
+    val name: String = "",
+    val arguments: String = "",
+)
+
+data class ApiResultWithTools(
+    val text: String,
+    val toolCalls: List<ToolCall>,
+    val usage: UsageInfo?,
+    val rawOutput: String = "",
+)
+
+@Serializable
+data class ResponsesRequestWithTools(
+    val model: String,
+    val input: JsonArray,
+    val instructions: String? = null,
+    val tools: List<ToolDefinition>? = null,
+    @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
 )
 
 @Serializable
@@ -118,6 +154,46 @@ class OpenAiApi(
             ?: "Empty response"
         val truncated = response.status == "incomplete"
         return ApiResult(text, response.usage, truncated)
+    }
+
+    suspend fun askWithTools(
+        inputItems: JsonArray,
+        model: String,
+        systemPrompt: String? = null,
+        tools: List<ToolDefinition> = emptyList(),
+    ): ApiResultWithTools {
+        val request = ResponsesRequestWithTools(
+            model = model,
+            input = inputItems,
+            instructions = systemPrompt?.takeIf { it.isNotBlank() },
+            tools = tools.takeIf { it.isNotEmpty() },
+        )
+        val httpResponse = client.post("https://api.openai.com/v1/responses") {
+            contentType(ContentType.Application.Json)
+            header("Authorization", "Bearer $apiKey")
+            setBody(request)
+        }
+        val rawOutput = httpResponse.bodyAsText()
+        if (!httpResponse.status.isSuccess()) {
+            error("API error ${httpResponse.status.value}: $rawOutput")
+        }
+        val response: ResponsesResponse = responseJson.decodeFromString(rawOutput)
+
+        val toolCalls = response.output
+            .filter { it.type == "function_call" }
+            .map { item -> ToolCall(id = item.id, callId = item.callId, name = item.name, arguments = item.arguments) }
+
+        val text = if (toolCalls.isEmpty()) {
+            response.outputText
+                ?: response.output
+                    .firstOrNull { it.type == "message" }
+                    ?.content
+                    ?.firstOrNull { it.type == "output_text" }
+                    ?.text
+                ?: ""
+        } else ""
+
+        return ApiResultWithTools(text = text, toolCalls = toolCalls, usage = response.usage, rawOutput = rawOutput)
     }
 
     suspend fun askWithHistory(

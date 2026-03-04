@@ -29,7 +29,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -54,7 +53,11 @@ import ua.com.myaiagent.data.context.StrategyType
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
+fun ChatScreen(
+    viewModel: AgentViewModel = koinViewModel(),
+    showLogs: Boolean = false,
+    onDismissLogs: () -> Unit = {},
+) {
     val systemPrompt by viewModel.systemPromptInput.collectAsState()
     val uiState by viewModel.state.collectAsState()
     val messages by viewModel.messages.collectAsState()
@@ -66,7 +69,6 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
     val branches by viewModel.branches.collectAsState()
     val activeBranchName by viewModel.activeBranchName.collectAsState()
     var query by remember { mutableStateOf("") }
-    var showLogs by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var showFactsExpanded by remember { mutableStateOf(false) }
@@ -100,32 +102,20 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Row(
+        Button(
+            onClick = {
+                val prompt = query.trim()
+                if (prompt.isNotEmpty()) {
+                    viewModel.send(prompt)
+                    query = ""
+                }
+            },
+            enabled = uiState !is UiState.Loading,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(
-                onClick = { showLogs = true },
-                enabled = lastLog != null,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Логи")
-            }
-            Button(
-                onClick = {
-                    val prompt = query.trim()
-                    if (prompt.isNotEmpty()) {
-                        viewModel.send(prompt)
-                        query = ""
-                    }
-                },
-                enabled = uiState !is UiState.Loading,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Отправить")
-            }
+            Text("Отправить")
         }
 
         val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
@@ -187,24 +177,16 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
         }
     }
 
-    // Log dialog
+    // Log dialog (opened from toolbar)
     if (showLogs) {
         AlertDialog(
-            onDismissRequest = { showLogs = false },
+            onDismissRequest = onDismissLogs,
             title = { Text("Лог запроса") },
             text = {
                 Column {
                     TabRow(selectedTabIndex = logTab) {
-                        Tab(
-                            selected = logTab == 0,
-                            onClick = { logTab = 0 },
-                            text = { Text("Лог") },
-                        )
-                        Tab(
-                            selected = logTab == 1,
-                            onClick = { logTab = 1 },
-                            text = { Text("JSON") },
-                        )
+                        Tab(selected = logTab == 0, onClick = { logTab = 0 }, text = { Text("Лог") })
+                        Tab(selected = logTab == 1, onClick = { logTab = 1 }, text = { Text("JSON") })
                     }
                     SelectionContainer {
                         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -221,9 +203,7 @@ fun ChatScreen(viewModel: AgentViewModel = koinViewModel()) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showLogs = false }) {
-                    Text("Закрыть")
-                }
+                TextButton(onClick = onDismissLogs) { Text("Закрыть") }
             },
         )
     }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Switch
@@ -50,7 +51,7 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
 
-enum class Screen { CHAT, HISTORY, DAY11 }
+enum class Screen { CHAT, HISTORY, DAY11, DAY13 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +67,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     var modelsExpanded by remember { mutableStateOf(false) }
     var strategyExpanded by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf(Screen.CHAT) }
+    var showLogsDialog by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -106,6 +108,16 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         icon = { Icon(Icons.Default.Layers, contentDescription = null) },
                         onClick = {
                             currentScreen = Screen.DAY11
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("День 13: Конечный автомат задач") },
+                        selected = currentScreen == Screen.DAY13,
+                        icon = { Icon(Icons.Default.List, contentDescription = null) },
+                        onClick = {
+                            currentScreen = Screen.DAY13
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -302,10 +314,18 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Screen.DAY13 -> Column {
+                                Text("Конечный автомат задач")
+                                Text(
+                                    text = "День 13 | Task State Machine · Tool Calling",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11) {
+                        if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11 || currentScreen == Screen.DAY13) {
                             IconButton(onClick = { currentScreen = Screen.CHAT }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                             }
@@ -315,14 +335,22 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             }
                         }
                     },
+                    actions = {
+                        if (currentScreen != Screen.HISTORY) {
+                            IconButton(onClick = { showLogsDialog = true }) {
+                                Icon(Icons.Default.List, contentDescription = "Логи")
+                            }
+                        }
+                    },
                 )
             },
         ) { innerPadding ->
             Box(modifier = Modifier.padding(innerPadding)) {
                 when (currentScreen) {
-                    Screen.CHAT -> ChatScreen(viewModel)
+                    Screen.CHAT    -> ChatScreen(viewModel, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.HISTORY -> HistoryScreen()
-                    Screen.DAY11 -> Day11Screen()
+                    Screen.DAY11   -> Day11Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
+                    Screen.DAY13   -> Day13Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                 }
             }
         }

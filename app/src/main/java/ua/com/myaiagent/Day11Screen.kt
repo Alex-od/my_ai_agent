@@ -81,7 +81,11 @@ private val LongTermColor  = Color(0xFF2196F3)   // 🔵 синий
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
+fun Day11Screen(
+    viewModel: Day11ViewModel = koinViewModel(),
+    showLogs: Boolean = false,
+    onDismissLogs: () -> Unit = {},
+) {
     val chatMessages by viewModel.chatMessages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
@@ -99,7 +103,6 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
     var showTaskDialog by remember { mutableStateOf(false) }
     var taskInput by remember { mutableStateOf("") }
     var showPromptDialog by remember { mutableStateOf(false) }
-    var showLogsDialog by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
     var showCustomEditor by remember { mutableStateOf(false) }
 
@@ -146,14 +149,6 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    if (lastRequestLog != null) {
-                        TextButton(
-                            onClick = { showLogsDialog = true; logTab = 0 },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text("Логи", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
                     IconButton(
                         onClick = { memoryExpanded = !memoryExpanded },
                         modifier = Modifier.size(32.dp),
@@ -420,10 +415,10 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
         )
     }
 
-    // ── Диалог логов (3 вкладки: Лог | Промпт | Маршрут) ────────────────────
-    if (showLogsDialog) {
+    // ── Диалог логов (4 вкладки: Лог | JSON | Промпт | Маршрут) — открывается из тулбара
+    if (showLogs) {
         AlertDialog(
-            onDismissRequest = { showLogsDialog = false },
+            onDismissRequest = onDismissLogs,
             title = { Text("Логи") },
             text = {
                 Column {
@@ -450,7 +445,7 @@ fun Day11Screen(viewModel: Day11ViewModel = koinViewModel()) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showLogsDialog = false }) { Text("Закрыть") }
+                TextButton(onClick = onDismissLogs) { Text("Закрыть") }
             },
         )
     }

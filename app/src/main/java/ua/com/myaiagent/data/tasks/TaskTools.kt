@@ -1,20 +1,24 @@
 package ua.com.myaiagent.data.tasks
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ToolDefinition(
-    val type: String = "function",
+    @EncodeDefault val type: String = "function",
     val name: String,
     val description: String,
     val parameters: ToolParameters,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ToolParameters(
-    val type: String = "object",
-    val properties: Map<String, ToolProperty> = emptyMap(),
-    val required: List<String> = emptyList(),
+    @EncodeDefault val type: String = "object",
+    @EncodeDefault val properties: Map<String, ToolProperty> = emptyMap(),
+    @EncodeDefault val required: List<String> = emptyList(),
 )
 
 @Serializable

@@ -50,12 +50,17 @@ class Day13ViewModel(
     val lastRawResponse: StateFlow<String> = _lastRawResponse.asStateFlow()
 
     private val conversationHistory = mutableListOf<JsonObject>()
+    private var currentJob: kotlinx.coroutines.Job? = null
 
     fun send(prompt: String, modelId: String = "gpt-4.1-mini") {
         if (prompt.isBlank()) return
-        viewModelScope.launch {
+        currentJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
+
+            if (taskStore.currentTask == null) {
+                createTask(prompt, "", emptyList())
+            }
 
             conversationHistory.add(buildJsonObject {
                 put("role", "user")
@@ -65,7 +70,9 @@ class Day13ViewModel(
 
             try {
                 var continueLoop = true
-                while (continueLoop) {
+                var iterations = 0
+                while (continueLoop && iterations < 30) {
+                    iterations++
                     val systemPrompt = buildSystemPrompt()
                     _lastSystemPrompt.value = systemPrompt
 
@@ -81,7 +88,6 @@ class Day13ViewModel(
                     _lastRawResponse.value = result.rawOutput
 
                     if (result.toolCalls.isNotEmpty()) {
-                        // Add function_call items to history (as returned by API)
                         result.toolCalls.forEach { toolCall ->
                             conversationHistory.add(buildJsonObject {
                                 put("type", "function_call")
@@ -91,7 +97,6 @@ class Day13ViewModel(
                                 put("arguments", toolCall.arguments)
                             })
                         }
-                        // Execute each tool and add results
                         result.toolCalls.forEach { toolCall ->
                             val event = toolCallToEvent(toolCall)
                             val outputJson = if (event != null) {
@@ -107,16 +112,18 @@ class Day13ViewModel(
                             })
                             _toolCallLog.value = _toolCallLog.value + "[${toolCall.name}] ${toolCall.arguments} → $outputJson"
                         }
-                        // Continue loop — LLM will send text response next
                     } else {
                         conversationHistory.add(buildJsonObject {
                             put("role", "assistant")
                             put("content", result.text)
                         })
                         _chatMessages.value = _chatMessages.value + ("assistant" to result.text)
+
                         continueLoop = false
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // stopped by user — not an error
             } catch (e: Exception) {
                 _error.value = e.message ?: "Неизвестная ошибка"
             } finally {
@@ -128,6 +135,11 @@ class Day13ViewModel(
     fun createTask(title: String, description: String, steps: List<String>) {
         val state = TaskStateMachine.create(TaskEvent.CreateTask(title, description, steps))
         taskStore.save(state)
+    }
+
+    fun stop() {
+        currentJob?.cancel()
+        _isLoading.value = false
     }
 
     fun clearTask() {
@@ -172,6 +184,8 @@ class Day13ViewModel(
 
     private fun buildSystemPrompt(): String = buildString {
         append("You are a task management AI assistant. Help the user manage their task using the available tools.\n\n")
+        append("When a step can be completed autonomously (generating content, writing, planning) — call complete_step immediately with the result in notes.\n")
+        append("When a step requires user input (clarification, approval, information) — ask the user and wait.\n\n")
         append(profileStore.profile.toSystemPromptSection())
         append("\n")
         val state = taskStore.currentTask

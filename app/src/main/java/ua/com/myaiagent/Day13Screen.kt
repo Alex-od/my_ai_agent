@@ -24,12 +24,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -91,6 +90,7 @@ fun Day13Screen(
     viewModel: Day13ViewModel = koinViewModel(),
     showLogs: Boolean = false,
     onDismissLogs: () -> Unit = {},
+    modelId: String = "gpt-4.1-mini",
 ) {
     val chatMessages by viewModel.chatMessages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -103,16 +103,9 @@ fun Day13Screen(
     var userInput by remember { mutableStateOf("") }
     var panelExpanded by remember { mutableStateOf(true) }
     var completedExpanded by remember { mutableStateOf(false) }
-    var showCreateDialog by remember { mutableStateOf(taskState == null) }
-    var showAddFactDialog by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
 
     val listState = rememberLazyListState()
-
-    // Auto-open create dialog when no task
-    LaunchedEffect(taskState) {
-        if (taskState == null) showCreateDialog = true
-    }
 
     LaunchedEffect(chatMessages.size) {
         if (chatMessages.isNotEmpty()) listState.animateScrollToItem(chatMessages.size - 1)
@@ -153,7 +146,7 @@ fun Day13Screen(
                         }
                     } else {
                         Text(
-                            text = "Нет активной задачи",
+                            text = "Опишите задачу внизу",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
@@ -181,19 +174,14 @@ fun Day13Screen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Current step
-                            if (state.stage != TaskStage.DONE) {
+                            // Steps
+                            if (state.stage == TaskStage.EXECUTION || state.stage == TaskStage.VALIDATION) {
+                                if (state.steps.isNotEmpty()) {
+                                    StepsListCard(state)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            } else if (state.stage != TaskStage.DONE) {
                                 CurrentStepCard(state)
-                                Spacer(modifier = Modifier.height(6.dp))
-                            }
-
-                            // Completed steps (collapsible)
-                            if (state.completedStepsCount > 0) {
-                                CompletedStepsCard(
-                                    steps = state.steps.filter { it.isCompleted },
-                                    expanded = completedExpanded,
-                                    onToggle = { completedExpanded = !completedExpanded },
-                                )
                                 Spacer(modifier = Modifier.height(6.dp))
                             }
 
@@ -203,47 +191,11 @@ fun Day13Screen(
                                 Spacer(modifier = Modifier.height(6.dp))
                             }
 
-                            // Controls
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showAddFactDialog = true },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Факт", style = MaterialTheme.typography.labelSmall)
-                                }
-                                OutlinedButton(
-                                    onClick = { viewModel.clearTask() },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Сброс", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                     }
                 }
 
-                // New task button when no task
-                if (taskState == null) {
-                    Button(
-                        onClick = { showCreateDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text("Создать задачу")
-                    }
-                }
             }
         }
 
@@ -274,12 +226,14 @@ fun Day13Screen(
 
             if (error != null) {
                 item {
-                    Text(
-                        text = "Ошибка: $error",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = "Ошибка: $error",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
                 }
             }
 
@@ -297,48 +251,38 @@ fun Day13Screen(
             OutlinedTextField(
                 value = userInput,
                 onValueChange = { userInput = it },
-                placeholder = { Text("Напишите что-нибудь...") },
+                placeholder = { Text(if (taskState == null) "Опишите вашу задачу..." else "Напишите что-нибудь...") },
                 modifier = Modifier.weight(1f),
                 maxLines = 4,
                 enabled = !isLoading,
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    val text = userInput.trim()
-                    if (text.isNotBlank()) {
-                        userInput = ""
-                        viewModel.send(text)
-                    }
-                },
-                enabled = !isLoading && userInput.isNotBlank(),
-                modifier = Modifier.height(56.dp),
-            ) {
-                Icon(Icons.Default.Send, contentDescription = "Отправить")
+            if (isLoading) {
+                Button(
+                    onClick = { viewModel.stop() },
+                    modifier = Modifier.height(56.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Icon(Icons.Default.Stop, contentDescription = "Стоп")
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val text = userInput.trim()
+                        if (text.isNotBlank()) {
+                            userInput = ""
+                            viewModel.send(text, modelId)
+                        }
+                    },
+                    enabled = userInput.isNotBlank(),
+                    modifier = Modifier.height(56.dp),
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Отправить")
+                }
             }
         }
-    }
-
-    // ── Create Task Dialog ────────────────────────────────────────────────────
-    if (showCreateDialog) {
-        CreateTaskDialog(
-            onDismiss = { showCreateDialog = false },
-            onCreate = { title, description, steps ->
-                viewModel.createTask(title, description, steps)
-                showCreateDialog = false
-            },
-        )
-    }
-
-    // ── Add Context Fact Dialog ───────────────────────────────────────────────
-    if (showAddFactDialog) {
-        AddContextFactDialog(
-            onDismiss = { showAddFactDialog = false },
-            onAdd = { key, value ->
-                viewModel.send("add_context_fact: $key = $value")
-                showAddFactDialog = false
-            },
-        )
     }
 
     // ── Logs Dialog ───────────────────────────────────────────────────────────
@@ -449,6 +393,56 @@ private fun StageTimeline(state: TaskState) {
                     color = if (isDone) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                     else MaterialTheme.colorScheme.outlineVariant,
                 )
+            }
+        }
+    }
+}
+
+// ── Steps List Card (Execution / Validation) ──────────────────────────────────
+
+@Composable
+private fun StepsListCard(state: TaskState) {
+    val color = stageColor(state.stage)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.06f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.3f)),
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = "${state.stage.label} · ${state.completedStepsCount}/${state.steps.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+            state.steps.forEach { step ->
+                val isCurrent = !step.isCompleted && step.index == state.currentStepIndex
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.padding(vertical = 2.dp),
+                ) {
+                    Text(
+                        text = if (step.isCompleted) "✓" else if (isCurrent) "→" else "○",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            step.isCompleted -> MaterialTheme.colorScheme.primary
+                            isCurrent -> color
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.width(18.dp),
+                    )
+                    Text(
+                        text = step.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            step.isCompleted -> MaterialTheme.colorScheme.onSurfaceVariant
+                            isCurrent -> MaterialTheme.colorScheme.onSurface
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                    )
+                }
             }
         }
     }
@@ -605,27 +599,27 @@ private fun ContextFactsCard(context: Map<String, String>) {
 @Composable
 private fun Day13MessageBubble(role: String, content: String) {
     val isUser = role == "user"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-    ) {
-        Box(
-            modifier = Modifier
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 12.dp, topEnd = 12.dp,
-                        bottomStart = if (isUser) 12.dp else 2.dp,
-                        bottomEnd = if (isUser) 2.dp else 12.dp,
-                    )
-                )
-                .background(
-                    if (isUser) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .fillMaxWidth(0.85f),
+    SelectionContainer {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         ) {
-            SelectionContainer {
+            Box(
+                modifier = Modifier
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 12.dp, topEnd = 12.dp,
+                            bottomStart = if (isUser) 12.dp else 2.dp,
+                            bottomEnd = if (isUser) 2.dp else 12.dp,
+                        )
+                    )
+                    .background(
+                        if (isUser) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .fillMaxWidth(0.85f),
+            ) {
                 Text(
                     text = content,
                     style = MaterialTheme.typography.bodySmall,
@@ -642,48 +636,24 @@ private fun Day13MessageBubble(role: String, content: String) {
 @Composable
 private fun CreateTaskDialog(onDismiss: () -> Unit, onCreate: (String, String, List<String>) -> Unit) {
     var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var stepsText by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Создать задачу") },
+        title = { Text("Новая задача") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Название") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Описание") },
-                    minLines = 2,
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = stepsText,
-                    onValueChange = { stepsText = it },
-                    label = { Text("Шаги (по одному на строку)") },
-                    placeholder = { Text("Шаг 1\nШаг 2\nШаг 3") },
-                    minLines = 3,
-                    maxLines = 6,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Цель") },
+                placeholder = { Text("Например: сделать лендинг для продукта") },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
         },
         confirmButton = {
             Button(
-                onClick = {
-                    if (title.isNotBlank()) {
-                        val steps = stepsText.lines().map { it.trim() }.filter { it.isNotBlank() }
-                        onCreate(title.trim(), description.trim(), steps.ifEmpty { listOf("Выполнить задачу") })
-                    }
-                },
+                onClick = { if (title.isNotBlank()) onCreate(title.trim(), "", emptyList()) },
                 enabled = title.isNotBlank(),
             ) { Text("Создать") }
         },
@@ -693,43 +663,6 @@ private fun CreateTaskDialog(onDismiss: () -> Unit, onCreate: (String, String, L
     )
 }
 
-@Composable
-private fun AddContextFactDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
-    var key by remember { mutableStateOf("") }
-    var value by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Добавить факт") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = { key = it },
-                    label = { Text("Ключ (напр. platform)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("Значение") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (key.isNotBlank() && value.isNotBlank()) onAdd(key.trim(), value.trim()) },
-                enabled = key.isNotBlank() && value.isNotBlank(),
-            ) { Text("Добавить") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
-        },
-    )
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -350,7 +350,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     Screen.CHAT    -> ChatScreen(viewModel, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.HISTORY -> HistoryScreen()
                     Screen.DAY11   -> Day11Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
-                    Screen.DAY13   -> Day13Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
+                    Screen.DAY13   -> Day13Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false }, modelId = selectedModel.id)
                 }
             }
         }

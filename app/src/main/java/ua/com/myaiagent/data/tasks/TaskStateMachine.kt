@@ -48,7 +48,8 @@ object TaskStateMachine {
 
             is TaskEvent.StartValidation -> {
                 if (state.stage != TaskStage.EXECUTION) return state
-                state.copy(stage = TaskStage.VALIDATION, expectedAction = "Validate all completed steps and confirm correctness.", updatedAt = now)
+                if (!state.steps.all { it.isCompleted }) return state
+                state.copy(stage = TaskStage.VALIDATION, expectedAction = "Review each completed step and verify the result.", updatedAt = now)
             }
 
             is TaskEvent.Complete -> {
@@ -99,6 +100,14 @@ object TaskStateMachine {
         }
 
         when (state.stage) {
+            TaskStage.PLANNING -> {
+                appendLine("## СТАДИЯ ПЛАНИРОВАНИЯ")
+                appendLine("Цель: \"${state.title}\"")
+                appendLine()
+                appendLine("Предложи конкретный план — список шагов для достижения цели.")
+                appendLine("Жди ЯВНОГО одобрения от пользователя (например: «хорошо», «давай», «начинай»).")
+                appendLine("⚠️ НЕ вызывай start_execution пока пользователь не одобрил план явно.")
+            }
             TaskStage.PAUSED -> {
                 appendLine("## ЗАДАЧА НА ПАУЗЕ")
                 appendLine("Была на стадии: ${state.pausedAtStage?.label ?: "—"}")
@@ -106,7 +115,11 @@ object TaskStateMachine {
             }
             TaskStage.VALIDATION -> {
                 appendLine("## СТАДИЯ ПРОВЕРКИ")
-                appendLine("Все шаги выполнены. Проверь результаты и подтверди завершение через complete_task.")
+                appendLine("Все шаги выполнены. Проверь каждый шаг по результатам из notes:")
+                state.steps.forEach { step ->
+                    appendLine("- Шаг ${step.index + 1} \"${step.description}\": ${step.notes.ifBlank { "нет notes" }}")
+                }
+                appendLine("Если всё корректно — вызови complete_task. Если есть проблемы — вызови back_to_step.")
             }
             TaskStage.DONE -> {
                 appendLine("## ЗАДАЧА ЗАВЕРШЕНА")
@@ -132,7 +145,7 @@ object TaskStateMachine {
         appendLine("Используй tools для управления состоянием задачи:")
         appendLine("- complete_step(notes): когда пользователь подтверждает завершение текущего шага")
         appendLine("- start_execution: когда пользователь одобряет план")
-        appendLine("- start_validation: когда все шаги выполнены")
+        appendLine("- start_validation: ТОЛЬКО когда все шаги выполнены (все complete_step вызваны)")
         appendLine("- complete_task: после успешной проверки")
         appendLine("- pause_task / resume_task: по запросу пользователя")
         appendLine("- add_context_fact(key, value): когда пользователь называет важный факт")

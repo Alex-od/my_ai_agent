@@ -13,7 +13,8 @@ import org.koin.dsl.module
 import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
 import ua.com.myaiagent.Day11ViewModel
-import ua.com.myaiagent.Day13ViewModel
+import ua.com.myaiagent.Week3ViewModel
+import ua.com.myaiagent.data.invariants.InvariantStore
 import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ContextCompressor
@@ -91,11 +92,14 @@ val appModule = module {
 
     single { UserProfileStore(androidContext()) }
 
+    single { InvariantStore(androidContext()) }
+
     viewModel { AgentViewModel(get(), get(), get()) }
 
     viewModel { HistoryViewModel(get()) }
 
     viewModel { Day11ViewModel(get(), androidContext(), get()) }
 
-    viewModel { Day13ViewModel(get(), androidContext(), get()) }
+    viewModel { Week3ViewModel(get(), androidContext(), get(), get()) }
+
 }

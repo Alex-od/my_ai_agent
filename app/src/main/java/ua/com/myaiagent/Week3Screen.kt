@@ -26,9 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -86,8 +88,8 @@ private fun stageColor(stage: TaskStage): Color = when (stage) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun Day13Screen(
-    viewModel: Day13ViewModel = koinViewModel(),
+fun Week3Screen(
+    viewModel: Week3ViewModel = koinViewModel(),
     showLogs: Boolean = false,
     onDismissLogs: () -> Unit = {},
     modelId: String = "gpt-4.1-mini",
@@ -99,11 +101,13 @@ fun Day13Screen(
     val lastSystemPrompt by viewModel.lastSystemPrompt.collectAsState()
     val toolCallLog by viewModel.toolCallLog.collectAsState()
     val lastRawResponse by viewModel.lastRawResponse.collectAsState()
+    val lastUserContent by viewModel.lastUserContent.collectAsState()
 
     var userInput by remember { mutableStateOf("") }
     var panelExpanded by remember { mutableStateOf(true) }
     var completedExpanded by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
+    var showInvariantsSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -151,6 +155,16 @@ fun Day13Screen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showInvariantsSheet = true },
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Инварианты", style = MaterialTheme.typography.labelSmall)
                     }
 
                     if (taskState != null) {
@@ -285,6 +299,14 @@ fun Day13Screen(
         }
     }
 
+    // ── Invariants Sheet ──────────────────────────────────────────────────────
+    if (showInvariantsSheet) {
+        InvariantManagerSheet(
+            invariantStore = viewModel.invariantStore,
+            onDismiss = { showInvariantsSheet = false },
+        )
+    }
+
     // ── Logs Dialog ───────────────────────────────────────────────────────────
     if (showLogs) {
         AlertDialog(
@@ -296,7 +318,8 @@ fun Day13Screen(
                         Tab(selected = logTab == 0, onClick = { logTab = 0 }, text = { Text("Лог") })
                         Tab(selected = logTab == 1, onClick = { logTab = 1 }, text = { Text("JSON") })
                         Tab(selected = logTab == 2, onClick = { logTab = 2 }, text = { Text("Промпт") })
-                        Tab(selected = logTab == 3, onClick = { logTab = 3 }, text = { Text("Автомат") })
+                        Tab(selected = logTab == 3, onClick = { logTab = 3 }, text = { Text("Сообщение") })
+                        Tab(selected = logTab == 4, onClick = { logTab = 4 }, text = { Text("Автомат") })
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     SelectionContainer {
@@ -305,6 +328,7 @@ fun Day13Screen(
                                 0 -> toolCallLog.joinToString("\n\n").ifBlank { "Tool calls не было" }
                                 1 -> lastRawResponse.ifBlank { "Нет данных" }
                                 2 -> lastSystemPrompt.ifBlank { "Промпт не сформирован" }
+                                3 -> lastUserContent.ifBlank { "Нет данных" }
                                 else -> buildStateMachineDump(taskState)
                             },
                             style = MaterialTheme.typography.bodySmall,

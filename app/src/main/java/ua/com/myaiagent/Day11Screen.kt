@@ -66,11 +66,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
-import ua.com.myaiagent.data.memory.ExpertiseLevel
 import ua.com.myaiagent.data.memory.MemoryMessage
 import ua.com.myaiagent.data.memory.MemorySnapshot
-import ua.com.myaiagent.data.memory.ProfilePresets
-import ua.com.myaiagent.data.memory.ResponseStyle
 import ua.com.myaiagent.data.memory.UserProfile
 
 // ── Цвета для слоёв памяти ────────────────────────────────────────────────────
@@ -93,8 +90,6 @@ fun Day11Screen(
     val routerLog by viewModel.routerLog.collectAsState()
     val lastSystemPrompt by viewModel.lastSystemPrompt.collectAsState()
     val lastRequestLog by viewModel.lastRequestLog.collectAsState()
-    val activeProfile by viewModel.profileFlow.collectAsState()
-
     var userInput by remember { mutableStateOf("") }
     var memoryExpanded by remember { mutableStateOf(true) }
     var shortTermExpanded by remember { mutableStateOf(false) }
@@ -104,7 +99,6 @@ fun Day11Screen(
     var taskInput by remember { mutableStateOf("") }
     var showPromptDialog by remember { mutableStateOf(false) }
     var logTab by remember { mutableIntStateOf(0) }
-    var showCustomEditor by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -116,21 +110,6 @@ fun Day11Screen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-
-        // ── Профиль пользователя ──────────────────────────────────────────────
-        ProfileSelectorBar(
-            activeProfile = activeProfile,
-            showCustomEditor = showCustomEditor,
-            onSelectPreset = { preset ->
-                viewModel.setProfile(preset)
-                showCustomEditor = false
-            },
-            onToggleCustom = { showCustomEditor = !showCustomEditor },
-            onSaveCustom = { profile ->
-                viewModel.setProfile(profile)
-                showCustomEditor = false
-            },
-        )
 
         // ── Панель состояния памяти ───────────────────────────────────────────
         Surface(shadowElevation = 2.dp) {
@@ -451,251 +430,6 @@ fun Day11Screen(
     }
 }
 
-// ── Профиль ───────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProfileSelectorBar(
-    activeProfile: UserProfile,
-    showCustomEditor: Boolean,
-    onSelectPreset: (UserProfile) -> Unit,
-    onToggleCustom: () -> Unit,
-    onSaveCustom: (UserProfile) -> Unit,
-) {
-    val ProfileColor = Color(0xFF9C27B0)  // фиолетовый для профиля
-
-    Surface(shadowElevation = 1.dp, color = ProfileColor.copy(alpha = 0.06f)) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-
-            // Строка с иконкой + чипы
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = ProfileColor,
-                )
-
-                // Пресеты
-                ProfilePresets.all.forEach { preset ->
-                    FilterChip(
-                        selected = activeProfile.id == preset.id,
-                        onClick = { onSelectPreset(preset) },
-                        label = { Text(preset.name, style = MaterialTheme.typography.labelSmall) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ProfileColor.copy(alpha = 0.18f),
-                            selectedLabelColor = ProfileColor,
-                        ),
-                    )
-                }
-
-                // Custom-чип
-                FilterChip(
-                    selected = activeProfile.id == "custom" || showCustomEditor,
-                    onClick = onToggleCustom,
-                    label = { Text("Custom", style = MaterialTheme.typography.labelSmall) },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = if (showCustomEditor) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ProfileColor.copy(alpha = 0.18f),
-                        selectedLabelColor = ProfileColor,
-                    ),
-                )
-            }
-
-            // Активный профиль — краткая инфо-строка
-            if (!showCustomEditor) {
-                Text(
-                    text = "${activeProfile.role.ifBlank { activeProfile.name }} · ${activeProfile.responseStyle.label} · ${activeProfile.expertiseLevel.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ProfileColor.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(start = 32.dp, bottom = 4.dp),
-                )
-            }
-
-            // Редактор Custom-профиля
-            AnimatedVisibility(visible = showCustomEditor) {
-                CustomProfileEditor(
-                    initial = if (activeProfile.id == "custom") activeProfile else UserProfile(
-                        id = "custom",
-                        name = "Custom",
-                        role = "",
-                        language = "Russian",
-                    ),
-                    onSave = onSaveCustom,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CustomProfileEditor(
-    initial: UserProfile,
-    onSave: (UserProfile) -> Unit,
-) {
-    var name by remember(initial.id) { mutableStateOf(initial.name) }
-    var role by remember(initial.id) { mutableStateOf(initial.role) }
-    var language by remember(initial.id) { mutableStateOf(initial.language) }
-    var responseStyle by remember(initial.id) { mutableStateOf(initial.responseStyle) }
-    var expertiseLevel by remember(initial.id) { mutableStateOf(initial.expertiseLevel) }
-    var useMarkdown by remember(initial.id) { mutableStateOf(initial.useMarkdown) }
-    var useEmoji by remember(initial.id) { mutableStateOf(initial.useEmoji) }
-    var restrictionsText by remember(initial.id) { mutableStateOf(initial.restrictions.joinToString("\n")) }
-    var customInstructions by remember(initial.id) { mutableStateOf(initial.customInstructions) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Настройка профиля",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Имя") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    textStyle = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = role,
-                    onValueChange = { role = it },
-                    label = { Text("Роль") },
-                    singleLine = true,
-                    modifier = Modifier.weight(2f),
-                    textStyle = MaterialTheme.typography.bodySmall,
-                )
-            }
-
-            OutlinedTextField(
-                value = language,
-                onValueChange = { language = it },
-                label = { Text("Язык ответов") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodySmall,
-            )
-
-            // Стиль ответов
-            Text("Стиль:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ResponseStyle.entries.forEach { style ->
-                    FilterChip(
-                        selected = responseStyle == style,
-                        onClick = { responseStyle = style },
-                        label = { Text(style.label, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
-
-            // Уровень экспертизы
-            Text("Уровень:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ExpertiseLevel.entries.forEach { level ->
-                    FilterChip(
-                        selected = expertiseLevel == level,
-                        onClick = { expertiseLevel = level },
-                        label = { Text(level.label, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
-
-            // Переключатели
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Markdown", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                Switch(checked = useMarkdown, onCheckedChange = { useMarkdown = it })
-                Spacer(modifier = Modifier.width(16.dp))
-                Text("Эмодзи", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                Switch(checked = useEmoji, onCheckedChange = { useEmoji = it })
-            }
-
-            // Ограничения (по одному на строку)
-            OutlinedTextField(
-                value = restrictionsText,
-                onValueChange = { restrictionsText = it },
-                label = { Text("Ограничения (по одному на строку)") },
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodySmall,
-                placeholder = { Text("Use Kotlin only\nNo emoji", style = MaterialTheme.typography.bodySmall) },
-            )
-
-            // Доп. инструкции
-            OutlinedTextField(
-                value = customInstructions,
-                onValueChange = { customInstructions = it },
-                label = { Text("Дополнительные инструкции") },
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodySmall,
-                placeholder = { Text("Always start with a summary...", style = MaterialTheme.typography.bodySmall) },
-            )
-
-            Button(
-                onClick = {
-                    val restrictions = restrictionsText.lines()
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                    onSave(
-                        UserProfile(
-                            id = "custom",
-                            name = name.ifBlank { "Custom" },
-                            role = role,
-                            language = language.ifBlank { "Russian" },
-                            responseStyle = responseStyle,
-                            expertiseLevel = expertiseLevel,
-                            useMarkdown = useMarkdown,
-                            useEmoji = useEmoji,
-                            restrictions = restrictions,
-                            customInstructions = customInstructions,
-                        )
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Сохранить профиль")
-            }
-        }
-    }
-}
-
-// ── Компоненты ────────────────────────────────────────────────────────────────
-
 @Composable
 private fun MemoryLayerCard(
     color: Color,
@@ -708,9 +442,7 @@ private fun MemoryLayerCard(
     Card(
         onClick = onToggle,
         modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = color.copy(alpha = 0.08f),
-        ),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f)),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
     ) {
         Column(modifier = Modifier.padding(8.dp)) {

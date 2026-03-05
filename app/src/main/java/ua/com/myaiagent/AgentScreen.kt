@@ -18,11 +18,13 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,11 +53,12 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
 
-enum class Screen { CHAT, HISTORY, DAY11, DAY13 }
+enum class Screen { CHAT, HISTORY, DAY11, DAY13, PROFILE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
+    val week3ViewModel: Week3ViewModel = koinViewModel()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val temperature by viewModel.temperatureInput.collectAsState()
     val topP by viewModel.topPInput.collectAsState()
@@ -113,7 +116,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                     NavigationDrawerItem(
-                        label = { Text("День 13: Конечный автомат задач") },
+                        label = { Text("Неделя 3: Автомат задач + Инварианты") },
                         selected = currentScreen == Screen.DAY13,
                         icon = { Icon(Icons.Default.List, contentDescription = null) },
                         onClick = {
@@ -122,7 +125,6 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
-
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                     // Секция: Модель
@@ -315,17 +317,19 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                 )
                             }
                             Screen.DAY13 -> Column {
-                                Text("Конечный автомат задач")
+                                Text("Неделя 3")
                                 Text(
-                                    text = "День 13 | Task State Machine · Tool Calling",
+                                    text = "Task State Machine · Invariants",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Screen.PROFILE -> Text("Профили")
                         }
                     },
                     navigationIcon = {
-                        if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11 || currentScreen == Screen.DAY13) {
+                        if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11
+                            || currentScreen == Screen.DAY13 || currentScreen == Screen.PROFILE) {
                             IconButton(onClick = { currentScreen = Screen.CHAT }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                             }
@@ -336,9 +340,17 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         }
                     },
                     actions = {
+                        if (currentScreen == Screen.DAY13) {
+                            IconButton(onClick = { week3ViewModel.clearTask() }) {
+                                Icon(Icons.Default.Add, contentDescription = "Новый диалог")
+                            }
+                        }
+                        IconButton(onClick = { currentScreen = Screen.PROFILE }) {
+                            Icon(Icons.Default.Person, contentDescription = "Профили")
+                        }
                         if (currentScreen != Screen.HISTORY) {
-                            IconButton(onClick = { showLogsDialog = true }) {
-                                Icon(Icons.Default.List, contentDescription = "Логи")
+                            TextButton(onClick = { showLogsDialog = true }) {
+                                Text("Logs")
                             }
                         }
                     },
@@ -350,7 +362,8 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     Screen.CHAT    -> ChatScreen(viewModel, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.HISTORY -> HistoryScreen()
                     Screen.DAY11   -> Day11Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
-                    Screen.DAY13   -> Day13Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false }, modelId = selectedModel.id)
+                    Screen.DAY13   -> Week3Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false }, modelId = selectedModel.id)
+                    Screen.PROFILE -> ProfileScreen()
                 }
             }
         }

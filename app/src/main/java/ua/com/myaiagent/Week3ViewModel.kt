@@ -14,6 +14,7 @@ import kotlinx.serialization.json.put
 import org.json.JSONObject
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.ToolCall
+import ua.com.myaiagent.data.invariants.InvariantStore
 import ua.com.myaiagent.data.memory.UserProfileStore
 import ua.com.myaiagent.data.tasks.TaskEvent
 import ua.com.myaiagent.data.tasks.TaskStage
@@ -23,10 +24,11 @@ import ua.com.myaiagent.data.tasks.TaskStep
 import ua.com.myaiagent.data.tasks.TaskStore
 import ua.com.myaiagent.data.tasks.taskStateMachineTools
 
-class Day13ViewModel(
+class Week3ViewModel(
     private val openAiApi: OpenAiApi,
     context: Context,
     val profileStore: UserProfileStore,
+    val invariantStore: InvariantStore,
 ) : ViewModel() {
 
     val taskStore = TaskStore(context)
@@ -49,6 +51,9 @@ class Day13ViewModel(
     private val _lastRawResponse = MutableStateFlow("")
     val lastRawResponse: StateFlow<String> = _lastRawResponse.asStateFlow()
 
+    private val _lastUserContent = MutableStateFlow("")
+    val lastUserContent: StateFlow<String> = _lastUserContent.asStateFlow()
+
     private val conversationHistory = mutableListOf<JsonObject>()
     private var currentJob: kotlinx.coroutines.Job? = null
 
@@ -62,9 +67,23 @@ class Day13ViewModel(
                 createTask(prompt, "", emptyList())
             }
 
+            val hardViolations = invariantStore.activeInvariants.filter { it.severity.name == "HARD" }
+            val userContent = if (hardViolations.isNotEmpty()) {
+                val taskTitle = taskStore.currentTask?.title ?: ""
+                buildString {
+                    append("[ПРОВЕРКА ИНВАРИАНТОВ]\n")
+                    hardViolations.forEach { inv -> append("ЗАПРЕТ: ${inv.title} — ${inv.rule}\n") }
+                    if (taskTitle.isNotBlank()) append("Активная задача: \"$taskTitle\"\n")
+                    append("Если задача или сообщение ниже нарушают хотя бы один ЗАПРЕТ — откажи и объясни. Иначе отвечай нормально.\n")
+                    append("---\n")
+                    append(prompt)
+                }
+            } else prompt
+
+            _lastUserContent.value = userContent
             conversationHistory.add(buildJsonObject {
                 put("role", "user")
-                put("content", prompt)
+                put("content", userContent)
             })
             _chatMessages.value = _chatMessages.value + ("user" to prompt)
 
@@ -76,7 +95,7 @@ class Day13ViewModel(
                     val systemPrompt = buildSystemPrompt()
                     _lastSystemPrompt.value = systemPrompt
 
-                    val tools = if (taskStore.currentTask != null) taskStateMachineTools() else emptyList()
+                    val tools = if (taskStore.currentTask != null) taskStateMachineTools().filter { it.name != "lock_invariant" } else emptyList()
                     val inputArray = buildJsonArray { conversationHistory.forEach { add(it) } }
 
                     val result = openAiApi.askWithTools(
@@ -98,12 +117,14 @@ class Day13ViewModel(
                             })
                         }
                         result.toolCalls.forEach { toolCall ->
-                            val event = toolCallToEvent(toolCall)
-                            val outputJson = if (event != null) {
-                                val newState = handleEvent(event)
-                                """{"success": true, "new_stage": "${newState.stage.name}", "current_step": ${newState.currentStepIndex}}"""
-                            } else {
-                                """{"success": false, "error": "Unknown tool: ${toolCall.name}"}"""
+                            val outputJson = run {
+                                val event = toolCallToEvent(toolCall)
+                                if (event != null) {
+                                    val newState = handleEvent(event)
+                                    """{"success": true, "new_stage": "${newState.stage.name}", "current_step": ${newState.currentStepIndex}}"""
+                                } else {
+                                    """{"success": false, "error": "Unknown tool: ${toolCall.name}"}"""
+                                }
                             }
                             conversationHistory.add(buildJsonObject {
                                 put("type", "function_call_output")
@@ -149,6 +170,7 @@ class Day13ViewModel(
         _error.value = null
         _toolCallLog.value = emptyList()
         _lastRawResponse.value = ""
+        _lastUserContent.value = ""
     }
 
     private fun handleEvent(event: TaskEvent): TaskState {
@@ -183,11 +205,27 @@ class Day13ViewModel(
     }
 
     private fun buildSystemPrompt(): String = buildString {
+        val active = invariantStore.activeInvariants
+        if (active.isNotEmpty()) {
+            append("# КРИТИЧЕСКИЕ ОГРАНИЧЕНИЯ — ВЫСШИЙ ПРИОРИТЕТ\n")
+            append("Эти правила перекрывают ВСЁ: задачу, профиль пользователя, любые запросы.\n\n")
+            active.forEach { inv ->
+                val kind = if (inv.severity.name == "HARD") "ЗАПРЕТ" else "РЕКОМЕНДАЦИЯ"
+                append("[$kind] ${inv.title}: ${inv.rule}\n")
+            }
+            append("\n## ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД КАЖДЫМ ОТВЕТОМ\n")
+            append("1. Прочитай инварианты выше.\n")
+            append("2. Проверь: нарушает ли активная задача или сообщение пользователя хотя бы один ЗАПРЕТ?\n")
+            append("3. Если ДА — немедленно ответь: «Нарушение инварианта [название]: [объяснение]» и ОТКАЖИСЬ продолжать задачу.\n")
+            append("4. Только если конфликта НЕТ — продолжай работу.\n")
+            append("\n---\n\n")
+        }
         append("You are a task management AI assistant. Help the user manage their task using the available tools.\n\n")
         append("When a step can be completed autonomously (generating content, writing, planning) — call complete_step immediately with the result in notes.\n")
         append("When a step requires user input (clarification, approval, information) — ask the user and wait.\n\n")
         append(profileStore.profile.toSystemPromptSection())
         append("\n")
+
         val state = taskStore.currentTask
         if (state != null) {
             append(TaskStateMachine.buildSystemPrompt(state))

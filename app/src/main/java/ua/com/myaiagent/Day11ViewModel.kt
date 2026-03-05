@@ -139,7 +139,7 @@ class Day11ViewModel(
                         appendLine("=== Memory Agent Log ===")
                         appendLine("Time:     $timestamp")
                         appendLine("Model:    $modelId")
-                        appendLine("Profile:  ${profile.name} (${profile.responseStyle.label} · ${profile.expertiseLevel.label})")
+                        appendLine("Profile:  ${profile.name}")
                         appendLine("Duration: ${duration}ms")
                         result.usage?.let { u ->
                             appendLine("Tokens:   in=${u.inputTokens}  out=${u.outputTokens}  total=${u.totalTokens}")

@@ -29,6 +29,19 @@ data class ToolProperty(
 
 fun taskStateMachineTools(): List<ToolDefinition> = listOf(
     ToolDefinition(
+        name = "lock_invariant",
+        description = "During PLANNING: extract and lock a technical constraint as a project invariant. Call for each architecture, language, platform, or framework constraint found in the task description.",
+        parameters = ToolParameters(
+            properties = mapOf(
+                "category" to ToolProperty("string", "ARCH, STACK, UX, SECURITY, or CUSTOM"),
+                "title" to ToolProperty("string", "Short constraint name, e.g. 'Kotlin only'"),
+                "rule" to ToolProperty("string", "Full constraint description injected into future prompts"),
+                "severity" to ToolProperty("string", "HARD (must not violate) or SOFT (prefer to follow)"),
+            ),
+            required = listOf("category", "title", "rule", "severity"),
+        ),
+    ),
+    ToolDefinition(
         name = "complete_step",
         description = "Mark the current step as done. Use when user confirms step completion.",
         parameters = ToolParameters(

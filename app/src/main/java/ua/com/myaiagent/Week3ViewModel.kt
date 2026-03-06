@@ -120,8 +120,15 @@ class Week3ViewModel(
                             val outputJson = run {
                                 val event = toolCallToEvent(toolCall)
                                 if (event != null) {
-                                    val newState = handleEvent(event)
-                                    """{"success": true, "new_stage": "${newState.stage.name}", "current_step": ${newState.currentStepIndex}}"""
+                                    val currentState = taskStore.currentTask
+                                    val validationError = if (currentState != null)
+                                        TaskStateMachine.validate(currentState, event) else null
+                                    if (validationError != null) {
+                                        """{"success": false, "error": "$validationError"}"""
+                                    } else {
+                                        val newState = handleEvent(event)
+                                        """{"success": true, "new_stage": "${newState.stage.name}", "current_step": ${newState.currentStepIndex}}"""
+                                    }
                                 } else {
                                     """{"success": false, "error": "Unknown tool: ${toolCall.name}"}"""
                                 }

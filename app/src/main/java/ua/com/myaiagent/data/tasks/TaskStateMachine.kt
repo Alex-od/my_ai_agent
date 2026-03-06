@@ -29,6 +29,7 @@ object TaskStateMachine {
 
             is TaskEvent.StartExecution -> {
                 if (state.stage != TaskStage.PLANNING) return state
+                if (state.steps.isEmpty()) return state
                 val expected = state.steps.firstOrNull()?.description ?: "Execute steps."
                 state.copy(stage = TaskStage.EXECUTION, currentStepIndex = 0, expectedAction = expected, updatedAt = now)
             }
@@ -83,6 +84,29 @@ object TaskStateMachine {
         }
     }
 
+    fun validate(state: TaskState, event: TaskEvent): String? = when (event) {
+        is TaskEvent.StartExecution -> when {
+            state.stage != TaskStage.PLANNING ->
+                "Нельзя начать выполнение: задача не в стадии планирования (текущая: ${state.stage.label})"
+            state.steps.isEmpty() ->
+                "Нельзя начать выполнение: план не составлен. Создайте шаги задачи."
+            else -> null
+        }
+        is TaskEvent.Complete -> when {
+            state.stage != TaskStage.VALIDATION ->
+                "Нельзя завершить задачу: не пройдена стадия валидации (текущая: ${state.stage.label}). Вызови start_validation."
+            else -> null
+        }
+        is TaskEvent.StartValidation -> when {
+            state.stage != TaskStage.EXECUTION ->
+                "Нельзя начать валидацию: задача не в стадии выполнения."
+            !state.steps.all { it.isCompleted } ->
+                "Нельзя начать валидацию: не все шаги выполнены (${state.completedStepsCount}/${state.steps.size})."
+            else -> null
+        }
+        else -> null
+    }
+
     fun buildSystemPrompt(state: TaskState): String = buildString {
         appendLine("## АКТИВНАЯ ЗАДАЧА: ${state.title}")
         appendLine("**Описание:** ${state.description}")
@@ -107,6 +131,7 @@ object TaskStateMachine {
                 appendLine("Предложи конкретный план — список шагов для достижения цели.")
                 appendLine("Жди ЯВНОГО одобрения от пользователя (например: «хорошо», «давай», «начинай»).")
                 appendLine("⚠️ НЕ вызывай start_execution пока пользователь не одобрил план явно.")
+                appendLine("⚠️ НЕ вызывай start_execution если steps пустые или пользователь не одобрил план явно.")
             }
             TaskStage.PAUSED -> {
                 appendLine("## ЗАДАЧА НА ПАУЗЕ")

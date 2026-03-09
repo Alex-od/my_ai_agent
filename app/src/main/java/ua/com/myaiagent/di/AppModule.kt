@@ -19,6 +19,7 @@ import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ContextCompressor
 import ua.com.myaiagent.data.OpenAiApi
+import ua.com.myaiagent.data.mcp.McpClient
 import ua.com.myaiagent.data.context.BranchingStrategy
 import ua.com.myaiagent.data.context.ContextStrategy
 import ua.com.myaiagent.data.context.SlidingWindowStrategy
@@ -57,6 +58,8 @@ val appModule = module {
         )
     }
 
+    single<McpClient> { McpClient(get()) }
+
     single<AppDatabase> {
         Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db")
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
@@ -94,7 +97,7 @@ val appModule = module {
 
     single { InvariantStore(androidContext()) }
 
-    viewModel { AgentViewModel(get(), get(), get()) }
+    viewModel { AgentViewModel(get(), get(), get(), get()) }
 
     viewModel { HistoryViewModel(get()) }
 

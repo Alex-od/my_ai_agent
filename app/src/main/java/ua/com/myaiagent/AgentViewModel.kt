@@ -9,6 +9,9 @@ import kotlinx.coroutines.launch
 import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ConversationMessage
 import ua.com.myaiagent.data.OpenAiApi
+import ua.com.myaiagent.data.mcp.McpClient
+import ua.com.myaiagent.data.mcp.McpTool
+import ua.com.myaiagent.data.mcp.toToolDefinition
 import ua.com.myaiagent.data.ResponsesRequestWithHistory
 import ua.com.myaiagent.data.UsageInfo
 import ua.com.myaiagent.data.context.BranchingStrategy
@@ -23,6 +26,7 @@ import ua.com.myaiagent.data.local.BranchEntity
 import ua.com.myaiagent.data.local.FactEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -50,6 +54,8 @@ data class TokenStats(
     val strategyOutput: Int = 0,
     val strategyCallCount: Int = 0,
 )
+
+enum class McpStatus { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
 sealed class UiState {
     data object Idle : UiState()
@@ -92,6 +98,7 @@ class AgentViewModel(
     private val api: OpenAiApi,
     private val repository: ChatRepository,
     private val strategies: Map<StrategyType, ContextStrategy>,
+    private val mcpClient: McpClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
@@ -123,6 +130,14 @@ class AgentViewModel(
 
     private val _activeBranchName = MutableStateFlow<String?>(null)
     val activeBranchName: StateFlow<String?> = _activeBranchName
+
+    val mcpUrl = MutableStateFlow("http://192.168.0.12:8080")
+    private val _mcpStatus = MutableStateFlow(McpStatus.DISCONNECTED)
+    val mcpStatus: StateFlow<McpStatus> = _mcpStatus
+    private val _mcpTools = MutableStateFlow<List<McpTool>>(emptyList())
+    val mcpTools: StateFlow<List<McpTool>> = _mcpTools
+    private val _mcpServerName = MutableStateFlow("")
+    val mcpServerName: StateFlow<String> = _mcpServerName
 
     val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
@@ -217,14 +232,71 @@ class AgentViewModel(
                 } catch (se: Exception) {
                     "Serialization error: ${se.message}"
                 }
-                val apiResult = api.askWithHistory(
-                    messages = apiMessages,
-                    model = model.id,
-                    systemPrompt = systemPrompt,
-                    maxTokens = maxTokens,
-                    temperature = temperature,
-                    topP = topP,
-                )
+                val isMcpActive = _mcpStatus.value == McpStatus.CONNECTED && _mcpTools.value.isNotEmpty()
+                val apiResult = if (isMcpActive) {
+                    val mcpToolDefs = _mcpTools.value.map { it.toToolDefinition() }
+                    val inputItems = buildJsonArray {
+                        apiMessages.forEach { msg ->
+                            add(buildJsonObject {
+                                put("role", msg.role)
+                                put("content", msg.content)
+                            })
+                        }
+                    }
+                    var currentInput = inputItems
+                    var finalText = ""
+                    var finalUsage: UsageInfo? = null
+                    var iterations = 0
+                    while (iterations < 10) {
+                        iterations++
+                        val r = api.askWithTools(
+                            inputItems = currentInput,
+                            model = model.id,
+                            systemPrompt = systemPrompt,
+                            tools = mcpToolDefs,
+                        )
+                        finalUsage = r.usage
+                        if (r.toolCalls.isNotEmpty()) {
+                            val nextInput = buildJsonArray {
+                                currentInput.forEach { add(it) }
+                                r.toolCalls.forEach { tc ->
+                                    add(buildJsonObject {
+                                        put("type", "function_call")
+                                        put("id", tc.id)
+                                        put("call_id", tc.callId)
+                                        put("name", tc.name)
+                                        put("arguments", tc.arguments)
+                                    })
+                                }
+                                r.toolCalls.forEach { tc ->
+                                    val result = runCatching {
+                                        mcpClient.callTool(tc.name, tc.arguments)
+                                    }.getOrElse { e -> "Error: ${e.message}" }
+                                    Log.d("AgentViewModel", "MCP tool ${tc.name} → $result")
+                                    add(buildJsonObject {
+                                        put("type", "function_call_output")
+                                        put("call_id", tc.callId)
+                                        put("output", result)
+                                    })
+                                }
+                            }
+                            currentInput = nextInput
+                        } else {
+                            finalText = r.text
+                            break
+                        }
+                    }
+                    ua.com.myaiagent.data.ApiResult(finalText, finalUsage)
+                } else {
+                    api.askWithHistory(
+                        messages = apiMessages,
+                        model = model.id,
+                        systemPrompt = systemPrompt,
+                        maxTokens = maxTokens,
+                        temperature = temperature,
+                        topP = topP,
+                    )
+                }
 
                 val duration = System.currentTimeMillis() - startTime
                 Log.d("AgentViewModel", "Response: ${apiResult.text}")
@@ -321,6 +393,27 @@ class AgentViewModel(
         _activeBranchName.value = if (branchId != null) {
             _branches.value.find { it.id == branchId }?.name
         } else null
+    }
+
+    // ── MCP ──────────────────────────────────────────────────────────────────
+
+    fun connectMcp(url: String) {
+        if (_mcpStatus.value == McpStatus.CONNECTING) return
+        _mcpStatus.value = McpStatus.CONNECTING
+        mcpUrl.value = url
+        viewModelScope.launch {
+            runCatching {
+                val name = mcpClient.connect(url)
+                _mcpServerName.value = name
+                _mcpTools.value = mcpClient.listTools()
+                _mcpStatus.value = McpStatus.CONNECTED
+            }.onFailure { e ->
+                Log.e("AgentViewModel", "MCP error: ${e.message}", e)
+                _mcpTools.value = emptyList()
+                _mcpServerName.value = ""
+                _mcpStatus.value = McpStatus.ERROR
+            }
+        }
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────

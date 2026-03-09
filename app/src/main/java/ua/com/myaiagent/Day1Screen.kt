@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
+import ua.com.myaiagent.data.mcp.McpTool
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -68,10 +70,15 @@ fun ChatScreen(
     val facts by viewModel.facts.collectAsState()
     val branches by viewModel.branches.collectAsState()
     val activeBranchName by viewModel.activeBranchName.collectAsState()
+    val mcpUrl by viewModel.mcpUrl.collectAsState()
+    val mcpStatus by viewModel.mcpStatus.collectAsState()
+    val mcpTools by viewModel.mcpTools.collectAsState()
+    val mcpServerName by viewModel.mcpServerName.collectAsState()
     var query by remember { mutableStateOf("") }
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var showFactsExpanded by remember { mutableStateOf(false) }
+    var showMcpPanel by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -139,6 +146,17 @@ fun ChatScreen(
                 onToggle = { showFactsExpanded = !showFactsExpanded },
             )
         }
+
+        McpPanel(
+            url = mcpUrl,
+            onUrlChange = { viewModel.mcpUrl.value = it },
+            status = mcpStatus,
+            serverName = mcpServerName,
+            tools = mcpTools,
+            expanded = showMcpPanel,
+            onToggle = { showMcpPanel = !showMcpPanel },
+            onConnect = { viewModel.connectMcp(mcpUrl) },
+        )
 
         if (tokenStats.requestCount > 0) {
             TokenStatsBar(tokenStats, contextInfo, selectedStrategy)
@@ -340,6 +358,105 @@ private fun FactsPanel(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun McpPanel(
+    url: String,
+    onUrlChange: (String) -> Unit,
+    status: McpStatus,
+    serverName: String,
+    tools: List<McpTool>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onConnect: () -> Unit,
+) {
+    val statusText = when (status) {
+        McpStatus.DISCONNECTED -> "не подключён"
+        McpStatus.CONNECTING   -> "подключение…"
+        McpStatus.CONNECTED    -> "подключён: $serverName"
+        McpStatus.ERROR        -> "ошибка"
+    }
+    val statusColor = when (status) {
+        McpStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+        McpStatus.CONNECTING   -> MaterialTheme.colorScheme.tertiary
+        McpStatus.CONNECTED    -> MaterialTheme.colorScheme.primary
+        McpStatus.ERROR        -> MaterialTheme.colorScheme.error
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .clickable { onToggle() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "MCP  ${if (expanded) "▲" else "▼"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelSmall,
+                color = statusColor,
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.padding(top = 6.dp)) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = onUrlChange,
+                    label = { Text("MCP URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = onConnect,
+                    enabled = status != McpStatus.CONNECTING,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                ) {
+                    if (status == McpStatus.CONNECTING) {
+                        CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp).padding(end = 8.dp))
+                    }
+                    Text("Connect")
+                }
+                if (tools.isNotEmpty()) {
+                    Column(modifier = Modifier.padding(top = 6.dp)) {
+                        tools.forEach { tool ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = tool.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    text = if (tool.description.isNotEmpty()) " — ${tool.description}" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
             }

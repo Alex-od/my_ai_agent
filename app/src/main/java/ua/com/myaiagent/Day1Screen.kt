@@ -70,15 +70,16 @@ fun ChatScreen(
     val facts by viewModel.facts.collectAsState()
     val branches by viewModel.branches.collectAsState()
     val activeBranchName by viewModel.activeBranchName.collectAsState()
-    val mcpUrl by viewModel.mcpUrl.collectAsState()
     val mcpStatus by viewModel.mcpStatus.collectAsState()
     val mcpTools by viewModel.mcpTools.collectAsState()
     val mcpServerName by viewModel.mcpServerName.collectAsState()
+    val mcpUrl by viewModel.mcpUrl.collectAsState()
     var query by remember { mutableStateOf("") }
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var showFactsExpanded by remember { mutableStateOf(false) }
     var showMcpPanel by remember { mutableStateOf(false) }
+    var showSystemPrompt by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -93,12 +94,22 @@ fun ChatScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        VoiceTextField(
-            value = systemPrompt,
-            onValueChange = { viewModel.systemPromptInput.value = it },
-            label = "system_prompt",
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { showSystemPrompt = !showSystemPrompt }) {
+                Text(if (showSystemPrompt) "▲ system_prompt" else "▼ system_prompt")
+            }
+        }
+        AnimatedVisibility(visible = showSystemPrompt) {
+            VoiceTextField(
+                value = systemPrompt,
+                onValueChange = { viewModel.systemPromptInput.value = it },
+                label = "system_prompt",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -157,10 +168,6 @@ fun ChatScreen(
             onToggle = { showMcpPanel = !showMcpPanel },
             onConnect = { viewModel.connectMcp(mcpUrl) },
         )
-
-        if (tokenStats.requestCount > 0) {
-            TokenStatsBar(tokenStats, contextInfo, selectedStrategy)
-        }
 
         Spacer(modifier = Modifier.height(8.dp))
 

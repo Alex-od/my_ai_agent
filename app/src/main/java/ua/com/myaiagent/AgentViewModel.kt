@@ -131,13 +131,13 @@ class AgentViewModel(
     private val _activeBranchName = MutableStateFlow<String?>(null)
     val activeBranchName: StateFlow<String?> = _activeBranchName
 
-    val mcpUrl = MutableStateFlow("http://192.168.0.12:8080")
     private val _mcpStatus = MutableStateFlow(McpStatus.DISCONNECTED)
     val mcpStatus: StateFlow<McpStatus> = _mcpStatus
     private val _mcpTools = MutableStateFlow<List<McpTool>>(emptyList())
     val mcpTools: StateFlow<List<McpTool>> = _mcpTools
     private val _mcpServerName = MutableStateFlow("")
     val mcpServerName: StateFlow<String> = _mcpServerName
+    val mcpUrl = MutableStateFlow(MCP_URL)
 
     val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
@@ -397,10 +397,14 @@ class AgentViewModel(
 
     // ── MCP ──────────────────────────────────────────────────────────────────
 
-    fun connectMcp(url: String) {
+    companion object {
+        const val MCP_URL = "http://192.168.0.249:8080"
+    }
+
+    fun connectMcp(url: String = mcpUrl.value) {
         if (_mcpStatus.value == McpStatus.CONNECTING) return
-        _mcpStatus.value = McpStatus.CONNECTING
         mcpUrl.value = url
+        _mcpStatus.value = McpStatus.CONNECTING
         viewModelScope.launch {
             runCatching {
                 val name = mcpClient.connect(url)

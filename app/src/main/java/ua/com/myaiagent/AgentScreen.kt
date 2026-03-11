@@ -340,6 +340,14 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         }
                     },
                     actions = {
+                        if (currentScreen == Screen.CHAT) {
+                            IconButton(onClick = {
+                                viewModel.startNewChat()
+                                viewModel.clearAllSchedulerTasks()
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = "Новый чат")
+                            }
+                        }
                         if (currentScreen == Screen.DAY13) {
                             IconButton(onClick = { week3ViewModel.clearTask() }) {
                                 Icon(Icons.Default.Add, contentDescription = "Новый диалог")

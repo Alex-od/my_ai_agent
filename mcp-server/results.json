@@ -1,0 +1,37 @@
+{
+  "weather_toronto": [
+    {
+      "runAt": 1773243542692,
+      "success": true,
+      "data": {
+        "city": "Toronto, Canada",
+        "temperature": "2.5°C",
+        "humidity": "100%",
+        "wind_speed": "3.35 m/s",
+        "condition": "Foggy"
+      }
+    },
+    {
+      "runAt": 1773243482480,
+      "success": true,
+      "data": {
+        "city": "Toronto, Canada",
+        "temperature": "2.5°C",
+        "humidity": "100%",
+        "wind_speed": "3.35 m/s",
+        "condition": "Foggy"
+      }
+    },
+    {
+      "runAt": 1773243422238,
+      "success": true,
+      "data": {
+        "city": "Toronto, Canada",
+        "temperature": "2.5°C",
+        "humidity": "100%",
+        "wind_speed": "3.35 m/s",
+        "condition": "Foggy"
+      }
+    }
+  ]
+}

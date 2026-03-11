@@ -45,9 +45,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.mikepenz.markdown.m3.Markdown
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
@@ -74,6 +85,11 @@ fun ChatScreen(
     val mcpTools by viewModel.mcpTools.collectAsState()
     val mcpServerName by viewModel.mcpServerName.collectAsState()
     val mcpUrl by viewModel.mcpUrl.collectAsState()
+    val schedulerTasks by viewModel.schedulerTasks.collectAsState()
+    val schedulerResults by viewModel.schedulerResults.collectAsState()
+    val selectedSchedulerTaskId by viewModel.selectedSchedulerTaskId.collectAsState()
+    var showSchedulerPanel by remember { mutableStateOf(false) }
+    var showCreateTaskDialog by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
@@ -169,6 +185,20 @@ fun ChatScreen(
             onConnect = { viewModel.connectMcp(mcpUrl) },
         )
 
+        if (mcpStatus == McpStatus.CONNECTED) {
+            SchedulerPanel(
+                tasks = schedulerTasks,
+                results = schedulerResults,
+                selectedTaskId = selectedSchedulerTaskId,
+                expanded = showSchedulerPanel,
+                onToggle = { showSchedulerPanel = !showSchedulerPanel },
+                onSelectTask = { viewModel.selectSchedulerTask(it) },
+                onStopTask = { viewModel.stopSchedulerTask(it) },
+                onDeleteTask = { viewModel.deleteSchedulerTask(it) },
+                onCreateTask = { showCreateTaskDialog = true },
+            )
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         LazyColumn(
@@ -229,6 +259,17 @@ fun ChatScreen(
             },
             confirmButton = {
                 TextButton(onClick = onDismissLogs) { Text("Закрыть") }
+            },
+        )
+    }
+
+    // Create task dialog
+    if (showCreateTaskDialog) {
+        CreateTaskDialog(
+            onDismiss = { showCreateTaskDialog = false },
+            onCreate = { taskId, description, cronExpr, toolName, toolArgs ->
+                viewModel.scheduleTask(taskId, description, cronExpr, toolName, toolArgs)
+                showCreateTaskDialog = false
             },
         )
     }
@@ -469,6 +510,282 @@ private fun McpPanel(
             }
         }
     }
+}
+
+@Composable
+private fun SchedulerPanel(
+    tasks: List<ScheduledTask>,
+    results: List<TaskResult>,
+    selectedTaskId: String?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onSelectTask: (String) -> Unit,
+    onStopTask: (String) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onCreateTask: () -> Unit,
+) {
+    val dateFmt = remember { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Планировщик (${tasks.size})  ${if (expanded) "▲" else "▼"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onToggle() },
+            )
+            AssistChip(
+                onClick = onCreateTask,
+                label = { Text("+ Задача", style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.padding(top = 4.dp)) {
+                if (tasks.isEmpty()) {
+                    Text(
+                        text = "Нет задач. Спросите агента или создайте через '+'",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                } else {
+                    tasks.forEach { task ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                .clickable { onSelectTask(task.taskId) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (task.taskId == selectedTaskId)
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surface,
+                            ),
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(
+                                            text = task.taskId,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        SuggestionChip(
+                                            onClick = {},
+                                            label = {
+                                                Text(
+                                                    text = task.status,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                )
+                                            },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = if (task.status == "running")
+                                                    Color(0xFF2E7D32).copy(alpha = 0.2f)
+                                                else
+                                                    MaterialTheme.colorScheme.surfaceVariant,
+                                                labelColor = if (task.status == "running")
+                                                    Color(0xFF2E7D32)
+                                                else
+                                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                            ),
+                                            modifier = Modifier.height(22.dp),
+                                        )
+                                    }
+                                    if (task.status == "running") {
+                                        TextButton(onClick = { onStopTask(task.taskId) }) {
+                                            Text("Стоп", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    TextButton(onClick = { onDeleteTask(task.taskId) }) {
+                                        Text(
+                                            "Удалить",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                                if (task.description.isNotBlank()) {
+                                    Text(
+                                        text = task.description,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Text(
+                                    text = "${task.cronExpression}  •  ${task.toolName}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                val lastRunText = task.lastRunAt?.let { dateFmt.format(Date(it)) } ?: "—"
+                                Text(
+                                    text = "последний: $lastRunText  •  запусков: ${task.runCount}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                AnimatedVisibility(visible = selectedTaskId != null) {
+                    Column(modifier = Modifier.padding(top = 6.dp)) {
+                        Text(
+                            text = "Результаты: $selectedTaskId",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        if (results.isEmpty()) {
+                            Text(
+                                text = "Результатов пока нет",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                                items(results) { r ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.Top,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = dateFmt.format(Date(r.runAt)),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            text = if (r.success) "✓" else "✗",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (r.success) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                                        )
+                                        Text(
+                                            text = r.data.take(150),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val FREQUENCY_OPTIONS = listOf(
+    "каждую минуту" to "*/1 * * * *",
+    "каждые 5 мин"  to "*/5 * * * *",
+    "каждый час"    to "0 * * * *",
+    "каждый день"   to "0 9 * * *",
+)
+
+@Composable
+private fun CreateTaskDialog(
+    onDismiss: () -> Unit,
+    onCreate: (taskId: String, description: String, cronExpr: String, toolName: String, toolArgs: String) -> Unit,
+) {
+    var selectedTool by remember { mutableStateOf("get_current_weather") }
+    var city by remember { mutableStateOf("") }
+    var selectedFreq by remember { mutableStateOf(FREQUENCY_OPTIONS[1]) }
+
+    // taskId генерируется автоматически
+    val autoTaskId = remember(city, selectedTool) {
+        val prefix = if (selectedTool == "get_forecast") "forecast" else "weather"
+        val citySlug = city.trim().lowercase().replace(" ", "_").ifEmpty { "city" }
+        "${prefix}_${citySlug}"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Новая задача") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = city,
+                    onValueChange = { city = it },
+                    label = { Text("Город") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Инструмент:", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedTool == "get_current_weather",
+                        onClick = { selectedTool = "get_current_weather" },
+                        label = { Text("Погода сейчас") },
+                    )
+                    FilterChip(
+                        selected = selectedTool == "get_forecast",
+                        onClick = { selectedTool = "get_forecast" },
+                        label = { Text("Прогноз") },
+                    )
+                }
+                Text("Как часто:", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FREQUENCY_OPTIONS.forEach { option ->
+                        FilterChip(
+                            selected = selectedFreq == option,
+                            onClick = { selectedFreq = option },
+                            label = { Text(option.first, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                Text(
+                    text = "ID: $autoTaskId",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = city.isNotBlank(),
+                onClick = {
+                    val toolArgs = if (selectedTool == "get_forecast") {
+                        """{"city":"${city.trim()}","days":3}"""
+                    } else {
+                        """{"city":"${city.trim()}"}"""
+                    }
+                    onCreate(autoTaskId, "", selectedFreq.second, selectedTool, toolArgs)
+                },
+            ) { Text("Создать") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        },
+    )
 }
 
 @Composable

@@ -28,6 +28,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import java.text.SimpleDateFormat
@@ -35,6 +39,22 @@ import java.util.Date
 import java.util.Locale
 
 data class RequestLog(val content: String, val rawJson: String = "")
+
+data class ScheduledTask(
+    val taskId: String,
+    val description: String,
+    val cronExpression: String,
+    val toolName: String,
+    val status: String,       // "running" | "stopped"
+    val lastRunAt: Long?,
+    val runCount: Int,
+)
+
+data class TaskResult(
+    val runAt: Long,
+    val success: Boolean,
+    val data: String,
+)
 
 data class UiMessage(val role: String, val content: String)
 
@@ -138,6 +158,17 @@ class AgentViewModel(
     private val _mcpServerName = MutableStateFlow("")
     val mcpServerName: StateFlow<String> = _mcpServerName
     val mcpUrl = MutableStateFlow(MCP_URL)
+
+    private val _schedulerTasks = MutableStateFlow<List<ScheduledTask>>(emptyList())
+    val schedulerTasks: StateFlow<List<ScheduledTask>> = _schedulerTasks
+
+    private val _schedulerResults = MutableStateFlow<List<TaskResult>>(emptyList())
+    val schedulerResults: StateFlow<List<TaskResult>> = _schedulerResults
+
+    private val _selectedSchedulerTaskId = MutableStateFlow<String?>(null)
+    val selectedSchedulerTaskId: StateFlow<String?> = _selectedSchedulerTaskId
+
+    private var schedulerPollingJob: kotlinx.coroutines.Job? = null
 
     val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
@@ -398,7 +429,7 @@ class AgentViewModel(
     // ── MCP ──────────────────────────────────────────────────────────────────
 
     companion object {
-        const val MCP_URL = "http://192.168.0.249:8080"
+        const val MCP_URL = "http://192.168.0.103:8080"
     }
 
     fun connectMcp(url: String = mcpUrl.value) {
@@ -411,6 +442,7 @@ class AgentViewModel(
                 _mcpServerName.value = name
                 _mcpTools.value = mcpClient.listTools()
                 _mcpStatus.value = McpStatus.CONNECTED
+                startSchedulerPolling()
             }.onFailure { e ->
                 Log.e("AgentViewModel", "MCP error: ${e.message}", e)
                 _mcpTools.value = emptyList()
@@ -420,7 +452,169 @@ class AgentViewModel(
         }
     }
 
+    fun refreshSchedulerTasks() {
+        viewModelScope.launch {
+            runCatching {
+                val raw = mcpClient.callTool("list_tasks", "{}")
+                _schedulerTasks.value = parseSchedulerTasks(raw)
+            }.onFailure { e ->
+                Log.e("AgentViewModel", "refreshSchedulerTasks: ${e.message}", e)
+            }
+        }
+    }
+
+    fun selectSchedulerTask(taskId: String) {
+        if (_selectedSchedulerTaskId.value == taskId) {
+            _selectedSchedulerTaskId.value = null
+            _schedulerResults.value = emptyList()
+            return
+        }
+        _selectedSchedulerTaskId.value = taskId
+        viewModelScope.launch {
+            runCatching {
+                val raw = mcpClient.callTool("get_task_results", """{"taskId":"$taskId","limit":20}""")
+                _schedulerResults.value = parseTaskResults(raw)
+            }.onFailure { e ->
+                Log.e("AgentViewModel", "selectSchedulerTask: ${e.message}", e)
+            }
+        }
+    }
+
+    fun stopSchedulerTask(taskId: String) {
+        viewModelScope.launch {
+            runCatching { mcpClient.callTool("stop_task", """{"taskId":"$taskId"}""") }
+                .onFailure { e -> Log.e("AgentViewModel", "stopSchedulerTask: ${e.message}", e) }
+            refreshSchedulerTasks()
+        }
+    }
+
+    fun clearAllSchedulerTasks() {
+        val ids = _schedulerTasks.value.map { it.taskId }
+        _schedulerTasks.value = emptyList()
+        _schedulerResults.value = emptyList()
+        _selectedSchedulerTaskId.value = null
+        viewModelScope.launch {
+            ids.forEach { taskId ->
+                runCatching { mcpClient.callTool("delete_task", """{"taskId":"$taskId"}""") }
+            }
+        }
+    }
+
+    fun deleteSchedulerTask(taskId: String) {
+        // Убираем карточку сразу, не ждём сервер
+        _schedulerTasks.value = _schedulerTasks.value.filter { it.taskId != taskId }
+        if (_selectedSchedulerTaskId.value == taskId) {
+            _selectedSchedulerTaskId.value = null
+            _schedulerResults.value = emptyList()
+        }
+        viewModelScope.launch {
+            runCatching { mcpClient.callTool("delete_task", """{"taskId":"$taskId"}""") }
+                .onFailure { e -> Log.e("AgentViewModel", "deleteSchedulerTask: ${e.message}", e) }
+        }
+    }
+
+    fun scheduleTask(taskId: String, description: String, cronExpression: String, toolName: String, toolArgs: String) {
+        viewModelScope.launch {
+            val finalToolArgs = translateCityIfNeeded(toolArgs)
+            val finalTaskId = if (taskId == autoTaskId(toolName, extractCity(toolArgs)))
+                autoTaskId(toolName, extractCity(finalToolArgs))
+            else taskId
+            val json = buildString {
+                append("""{"taskId":${Json.encodeToString(finalTaskId)}""")
+                append(""","description":${Json.encodeToString(description)}""")
+                append(""","cronExpression":${Json.encodeToString(cronExpression)}""")
+                append(""","toolName":${Json.encodeToString(toolName)}""")
+                append(""","toolArgs":$finalToolArgs}""")
+            }
+            runCatching { mcpClient.callTool("schedule_task", json) }
+                .onFailure { e -> Log.e("AgentViewModel", "scheduleTask: ${e.message}", e) }
+            refreshSchedulerTasks()
+        }
+    }
+
+    private suspend fun translateCityIfNeeded(toolArgs: String): String {
+        val city = extractCity(toolArgs)
+        if (city.isBlank() || !city.any { it in '\u0400'..'\u04FF' }) return toolArgs
+        return runCatching {
+            val result = api.askWithHistory(
+                messages = listOf(ua.com.myaiagent.data.ConversationMessage(
+                    role = "user",
+                    content = "Translate this city name to English. Reply with ONLY the English city name, nothing else: $city",
+                )),
+                model = "gpt-4.1-nano",
+                systemPrompt = null,
+                maxTokens = 20,
+                temperature = 0.0,
+                topP = null,
+            )
+            val translated = result.text.trim()
+            Log.d("AgentViewModel", "City translated: $city → $translated")
+            toolArgs.replace("\"$city\"", "\"$translated\"")
+        }.getOrElse { toolArgs }
+    }
+
+    private fun extractCity(toolArgs: String): String =
+        Regex(""""city"\s*:\s*"([^"]+)"""").find(toolArgs)?.groupValues?.get(1) ?: ""
+
+    private fun autoTaskId(toolName: String, city: String): String {
+        val prefix = if (toolName == "get_forecast") "forecast" else "weather"
+        val slug = city.trim().lowercase().replace(" ", "_").ifEmpty { "city" }
+        return "${prefix}_${slug}"
+    }
+
+    private fun startSchedulerPolling() {
+        schedulerPollingJob?.cancel()
+        schedulerPollingJob = viewModelScope.launch {
+            while (true) {
+                refreshSchedulerTasks()
+                kotlinx.coroutines.delay(15_000L)
+            }
+        }
+    }
+
+    private fun parseSchedulerTasks(raw: String): List<ScheduledTask> {
+        return try {
+            Json.parseToJsonElement(raw).jsonArray.map { el ->
+                val o = el.jsonObject
+                ScheduledTask(
+                    taskId = o["taskId"]?.jsonPrimitive?.content ?: "",
+                    description = o["description"]?.jsonPrimitive?.content ?: "",
+                    cronExpression = o["cronExpression"]?.jsonPrimitive?.content ?: "",
+                    toolName = o["toolName"]?.jsonPrimitive?.content ?: "",
+                    status = o["status"]?.jsonPrimitive?.content ?: "stopped",
+                    lastRunAt = o["lastRunAt"]?.jsonPrimitive?.longOrNull,
+                    runCount = o["runCount"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("AgentViewModel", "parseSchedulerTasks: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    private fun parseTaskResults(raw: String): List<TaskResult> {
+        return try {
+            val root = Json.parseToJsonElement(raw).jsonObject
+            root["results"]?.jsonArray?.map { el ->
+                val o = el.jsonObject
+                TaskResult(
+                    runAt = o["runAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+                    success = o["success"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false,
+                    data = o["data"]?.toString() ?: "",
+                )
+            } ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("AgentViewModel", "parseTaskResults: ${e.message}", e)
+            emptyList()
+        }
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    override fun onCleared() {
+        super.onCleared()
+        schedulerPollingJob?.cancel()
+    }
 
     fun startNewChat() {
         viewModelScope.launch {

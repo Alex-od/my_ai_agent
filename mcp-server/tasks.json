@@ -1,0 +1,28 @@
+{
+  "weather_toronto": {
+    "taskId": "weather_toronto",
+    "description": "",
+    "cronExpression": "*/1 * * * *",
+    "toolName": "get_current_weather",
+    "toolArgs": {
+      "city": "Toronto"
+    },
+    "status": "running",
+    "createdAt": 1773243405436,
+    "lastRunAt": 1773243542692,
+    "runCount": 3
+  },
+  "weather_rome": {
+    "taskId": "weather_rome",
+    "description": "",
+    "cronExpression": "*/1 * * * *",
+    "toolName": "get_current_weather",
+    "toolArgs": {
+      "city": "Rome"
+    },
+    "status": "running",
+    "createdAt": 1773243540451,
+    "lastRunAt": null,
+    "runCount": 0
+  }
+}

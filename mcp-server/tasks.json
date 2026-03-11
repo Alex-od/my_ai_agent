@@ -7,10 +7,10 @@
     "toolArgs": {
       "city": "Toronto"
     },
-    "status": "running",
+    "status": "stopped",
     "createdAt": 1773243405436,
-    "lastRunAt": 1773243542692,
-    "runCount": 3
+    "lastRunAt": 1773243661409,
+    "runCount": 5
   },
   "weather_rome": {
     "taskId": "weather_rome",
@@ -20,9 +20,9 @@
     "toolArgs": {
       "city": "Rome"
     },
-    "status": "running",
+    "status": "stopped",
     "createdAt": 1773243540451,
-    "lastRunAt": null,
-    "runCount": 0
+    "lastRunAt": 1773243661345,
+    "runCount": 2
   }
 }

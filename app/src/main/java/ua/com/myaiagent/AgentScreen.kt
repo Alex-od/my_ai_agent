@@ -106,7 +106,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                     NavigationDrawerItem(
-                        label = { Text("День 11-12: Память + Профиль") },
+                        label = { Text("Неделя 2: Память + Профиль") },
                         selected = currentScreen == Screen.DAY11,
                         icon = { Icon(Icons.Default.Layers, contentDescription = null) },
                         onClick = {
@@ -290,6 +290,26 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+
+                    // Секция: System Prompt
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "System Prompt",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+                    )
+                    val systemPrompt by viewModel.systemPromptInput.collectAsState()
+                    OutlinedTextField(
+                        value = systemPrompt,
+                        onValueChange = { viewModel.systemPromptInput.value = it },
+                        label = { Text("system_prompt") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                        minLines = 3,
+                        maxLines = 6,
+                    )
                 }
             }
         },
@@ -299,19 +319,12 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                 TopAppBar(
                     title = {
                         when (currentScreen) {
-                            Screen.CHAT -> Column {
-                                Text("Chat")
-                                Text(
-                                    text = "${selectedModel.displayName} | ${selectedStrategy.label}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Screen.CHAT -> Text("Chat")
                             Screen.HISTORY -> Text("История")
                             Screen.DAY11 -> Column {
                                 Text("Память + Профиль")
                                 Text(
-                                    text = "День 11-12 | Memory · Personalization",
+                                    text = "Неделя 2 | Memory · Personalization",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

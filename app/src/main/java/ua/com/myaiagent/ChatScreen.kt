@@ -45,8 +45,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.SuggestionChip
@@ -71,7 +74,6 @@ fun ChatScreen(
     showLogs: Boolean = false,
     onDismissLogs: () -> Unit = {},
 ) {
-    val systemPrompt by viewModel.systemPromptInput.collectAsState()
     val uiState by viewModel.state.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val lastLog by viewModel.lastRequestLog.collectAsState()
@@ -94,8 +96,7 @@ fun ChatScreen(
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var showFactsExpanded by remember { mutableStateOf(false) }
-    var showMcpPanel by remember { mutableStateOf(false) }
-    var showSystemPrompt by remember { mutableStateOf(false) }
+    var showMcpMenu by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
@@ -110,25 +111,6 @@ fun ChatScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { showSystemPrompt = !showSystemPrompt }) {
-                Text(if (showSystemPrompt) "▲ system_prompt" else "▼ system_prompt")
-            }
-        }
-        AnimatedVisibility(visible = showSystemPrompt) {
-            VoiceTextField(
-                value = systemPrompt,
-                onValueChange = { viewModel.systemPromptInput.value = it },
-                label = "system_prompt",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         VoiceTextField(
             value = query,
             onValueChange = { query = it },
@@ -136,20 +118,84 @@ fun ChatScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Button(
-            onClick = {
-                val prompt = query.trim()
-                if (prompt.isNotEmpty()) {
-                    viewModel.send(prompt)
-                    query = ""
-                }
-            },
-            enabled = uiState !is UiState.Loading,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Отправить")
+            val mcpColor = when (mcpStatus) {
+                McpStatus.CONNECTED    -> MaterialTheme.colorScheme.primary
+                McpStatus.CONNECTING   -> MaterialTheme.colorScheme.tertiary
+                McpStatus.ERROR        -> MaterialTheme.colorScheme.error
+                McpStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Box {
+            OutlinedButton(
+                onClick = { showMcpMenu = !showMcpMenu },
+                border = BorderStroke(1.dp, mcpColor),
+            ) {
+                Text(
+                    text = when (mcpStatus) {
+                        McpStatus.CONNECTED    -> "MCP ●"
+                        McpStatus.CONNECTING   -> "MCP …"
+                        McpStatus.ERROR        -> "MCP ✕"
+                        McpStatus.DISCONNECTED -> "MCP"
+                    },
+                    color = mcpColor,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            DropdownMenu(
+                expanded = showMcpMenu,
+                onDismissRequest = { showMcpMenu = false },
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(260.dp)) {
+                    OutlinedTextField(
+                        value = mcpUrl,
+                        onValueChange = { viewModel.mcpUrl.value = it },
+                        label = { Text("MCP URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            viewModel.connectMcp(mcpUrl)
+                            showMcpMenu = false
+                        },
+                        enabled = mcpStatus != McpStatus.CONNECTING,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    ) {
+                        Text("Connect")
+                    }
+                    if (mcpTools.isNotEmpty()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        mcpTools.forEach { tool ->
+                            Text(
+                                text = tool.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            } // Box
+            Button(
+                onClick = {
+                    val prompt = query.trim()
+                    if (prompt.isNotEmpty()) {
+                        viewModel.send(prompt)
+                        query = ""
+                    }
+                },
+                enabled = uiState !is UiState.Loading,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Отправить")
+            }
         }
 
         val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
@@ -173,17 +219,6 @@ fun ChatScreen(
                 onToggle = { showFactsExpanded = !showFactsExpanded },
             )
         }
-
-        McpPanel(
-            url = mcpUrl,
-            onUrlChange = { viewModel.mcpUrl.value = it },
-            status = mcpStatus,
-            serverName = mcpServerName,
-            tools = mcpTools,
-            expanded = showMcpPanel,
-            onToggle = { showMcpPanel = !showMcpPanel },
-            onConnect = { viewModel.connectMcp(mcpUrl) },
-        )
 
         if (mcpStatus == McpStatus.CONNECTED) {
             SchedulerPanel(

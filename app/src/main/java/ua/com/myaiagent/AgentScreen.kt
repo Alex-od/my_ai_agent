@@ -53,12 +53,13 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
 
-enum class Screen { CHAT, HISTORY, DAY11, DAY13, PROFILE }
+enum class Screen { CHAT, HISTORY, DAY11, DAY13, WEEK4, PROFILE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
     val week3ViewModel: Week3ViewModel = koinViewModel()
+    val week4ViewModel: Week4ViewModel = koinViewModel()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val temperature by viewModel.temperatureInput.collectAsState()
     val topP by viewModel.topPInput.collectAsState()
@@ -121,6 +122,16 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         icon = { Icon(Icons.Default.List, contentDescription = null) },
                         onClick = {
                             currentScreen = Screen.DAY13
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("Неделя 4: Pipeline Agent") },
+                        selected = currentScreen == Screen.WEEK4,
+                        icon = { Icon(Icons.Default.List, contentDescription = null) },
+                        onClick = {
+                            currentScreen = Screen.WEEK4
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -337,12 +348,21 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Screen.WEEK4 -> Column {
+                                Text("Неделя 4")
+                                Text(
+                                    text = "MCP Pipeline Agent",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             Screen.PROFILE -> Text("Профили")
                         }
                     },
                     navigationIcon = {
                         if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11
-                            || currentScreen == Screen.DAY13 || currentScreen == Screen.PROFILE) {
+                            || currentScreen == Screen.DAY13 || currentScreen == Screen.WEEK4
+                            || currentScreen == Screen.PROFILE) {
                             IconButton(onClick = { currentScreen = Screen.CHAT }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                             }
@@ -366,6 +386,11 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                 Icon(Icons.Default.Add, contentDescription = "Новый диалог")
                             }
                         }
+                        if (currentScreen == Screen.WEEK4) {
+                            IconButton(onClick = { week4ViewModel.reset() }) {
+                                Icon(Icons.Default.Add, contentDescription = "Сбросить")
+                            }
+                        }
                         IconButton(onClick = { currentScreen = Screen.PROFILE }) {
                             Icon(Icons.Default.Person, contentDescription = "Профили")
                         }
@@ -384,6 +409,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     Screen.HISTORY -> HistoryScreen()
                     Screen.DAY11   -> Day11Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.DAY13   -> Week3Screen(showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false }, modelId = selectedModel.id)
+                    Screen.WEEK4   -> Week4Screen(viewModel = week4ViewModel, modelId = selectedModel.id, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.PROFILE -> ProfileScreen()
                 }
             }

@@ -14,6 +14,7 @@ import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
 import ua.com.myaiagent.Day11ViewModel
 import ua.com.myaiagent.Week3ViewModel
+import ua.com.myaiagent.Week4ViewModel
 import ua.com.myaiagent.data.invariants.InvariantStore
 import ua.com.myaiagent.HistoryViewModel
 import ua.com.myaiagent.data.ChatRepository
@@ -104,5 +105,7 @@ val appModule = module {
     viewModel { Day11ViewModel(get(), androidContext(), get()) }
 
     viewModel { Week3ViewModel(get(), androidContext(), get(), get()) }
+
+    viewModel { Week4ViewModel(get(), get(), BuildConfig.OPENAI_API_KEY, androidContext()) }
 
 }

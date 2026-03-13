@@ -4,7 +4,9 @@
   "description": "MCP server wrapping Open-Meteo weather API",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "file-server": "node file-server.js",
+    "calculator": "node calculator-server.js"
   },
   "dependencies": {
     "express": "^4.18.2",

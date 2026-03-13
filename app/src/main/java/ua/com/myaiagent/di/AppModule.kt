@@ -13,6 +13,7 @@ import org.koin.dsl.module
 import ua.com.myaiagent.AgentViewModel
 import ua.com.myaiagent.BuildConfig
 import ua.com.myaiagent.Day11ViewModel
+import ua.com.myaiagent.OrchestrationViewModel
 import ua.com.myaiagent.Week3ViewModel
 import ua.com.myaiagent.Week4ViewModel
 import ua.com.myaiagent.data.invariants.InvariantStore
@@ -21,6 +22,7 @@ import ua.com.myaiagent.data.ChatRepository
 import ua.com.myaiagent.data.ContextCompressor
 import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.mcp.McpClient
+import ua.com.myaiagent.data.mcp.McpOrchestrator
 import ua.com.myaiagent.data.context.BranchingStrategy
 import ua.com.myaiagent.data.context.ContextStrategy
 import ua.com.myaiagent.data.context.SlidingWindowStrategy
@@ -60,6 +62,8 @@ val appModule = module {
     }
 
     single<McpClient> { McpClient(get()) }
+
+    single<McpOrchestrator> { McpOrchestrator(get()) }
 
     single<AppDatabase> {
         Room.databaseBuilder(androidContext(), AppDatabase::class.java, "chat_history.db")
@@ -107,5 +111,7 @@ val appModule = module {
     viewModel { Week3ViewModel(get(), androidContext(), get(), get()) }
 
     viewModel { Week4ViewModel(get(), get(), BuildConfig.OPENAI_API_KEY, androidContext()) }
+
+    viewModel { OrchestrationViewModel(get(), get(), BuildConfig.OPENAI_API_KEY) }
 
 }

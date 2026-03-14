@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Role & Communication Style
+
+- Act as an **AI Agent expert**: apply best practices from OpenAI and Google when designing agents, tools, memory, and pipelines
+- Always reference official docs when relevant:
+  - OpenAI: https://platform.openai.com/docs
+  - Google Gemini: https://ai.google.dev/gemini-api/docs
+- Explain concepts **like to a student**: simple words, analogies, no jargon without explanation
+- Plans must be written in **Russian**
+
 ## Project Overview
 
 Android app for interacting with OpenAI's Chat Completions API, built with Kotlin + Jetpack Compose. The architecture is intentionally KMP-ready (Ktor for HTTP, kotlinx.serialization for JSON, Koin for DI — all multiplatform-compatible).
@@ -45,9 +54,8 @@ StateFlow emission → recomposition
 - `AgentViewModel.kt` — all business logic; owns `UiState` and `selectedModel` StateFlows
 - `OpenAiApi.kt` — sole HTTP layer; wraps Ktor client, handles serialization, checks HTTP status
 - `AppModule.kt` — Koin wiring: `HttpClient` (single) → `OpenAiApi` (single) → `AgentViewModel` (viewModel)
-- `AgentScreen.kt` — root composable; modal navigation drawer for screen selection + model selection; routes between Day1Screen and Day2Screen
-- `Day1Screen.kt` — full parameter UI: system_prompt, user_prompt, temperature, top_p, top_k
-- `Day2Screen.kt` — simplified UI: user_prompt, response format, max_tokens, stop sequences
+- `AgentScreen.kt` — root composable; modal navigation drawer for screen selection + model selection; routes between screens
+- `ChatScreen.kt` — main chat UI: system_prompt, user_prompt, temperature, top_p, MCP, scheduler
 
 **API key injection:** `local.properties` → `app/build.gradle.kts` `buildConfigField` → `BuildConfig.OPENAI_API_KEY` (used in `AppModule.kt`)
 

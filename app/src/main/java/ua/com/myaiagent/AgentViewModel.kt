@@ -429,7 +429,7 @@ class AgentViewModel(
     // ── MCP ──────────────────────────────────────────────────────────────────
 
     companion object {
-        const val MCP_URL = "http://192.168.0.103:8080"
+        const val MCP_URL = "http://192.168.0.102:8080"
     }
 
     fun connectMcp(url: String = mcpUrl.value) {

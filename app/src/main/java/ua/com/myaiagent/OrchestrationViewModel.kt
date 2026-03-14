@@ -14,9 +14,9 @@ import ua.com.myaiagent.data.OpenAiApi
 import ua.com.myaiagent.data.mcp.McpOrchestrator
 import ua.com.myaiagent.data.mcp.toToolDefinition
 
-const val URL_WEATHER    = "http://192.168.0.103:8080"
-const val URL_FILE       = "http://192.168.0.103:8081"
-const val URL_CALCULATOR = "http://192.168.0.103:8082"
+const val URL_WEATHER    = "http://192.168.0.102:8080"
+const val URL_FILE       = "http://192.168.0.102:8081"
+const val URL_CALCULATOR = "http://192.168.0.102:8082"
 
 private val ALL_URLS = listOf(URL_WEATHER, URL_FILE, URL_CALCULATOR)
 

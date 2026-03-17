@@ -1,0 +1,6 @@
+faiss-cpu
+requests
+pymupdf
+fastapi
+uvicorn
+numpy

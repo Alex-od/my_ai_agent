@@ -3,6 +3,7 @@ package ua.com.myaiagent
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -26,6 +27,7 @@ import ua.com.myaiagent.data.local.BranchEntity
 import ua.com.myaiagent.data.local.FactEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -76,6 +78,23 @@ data class TokenStats(
 )
 
 enum class McpStatus { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+
+data class RagSearchResult(
+    val text: String,
+    val source: String,
+    val chunkId: String,
+    val score: Float,
+    val chunkSize: Int,
+    val section: String,
+    val strategy: String,
+)
+
+sealed class RagIndexingState {
+    data object Idle : RagIndexingState()
+    data class Indexing(val done: Int, val total: Int, val message: String = "") : RagIndexingState()
+    data class Done(val result: String) : RagIndexingState()
+    data class Error(val message: String) : RagIndexingState()
+}
 
 sealed class UiState {
     data object Idle : UiState()
@@ -168,6 +187,21 @@ class AgentViewModel(
     private val _selectedSchedulerTaskId = MutableStateFlow<String?>(null)
     val selectedSchedulerTaskId: StateFlow<String?> = _selectedSchedulerTaskId
 
+    private val _ragIndexingState = MutableStateFlow<RagIndexingState>(RagIndexingState.Idle)
+    val ragIndexingState: StateFlow<RagIndexingState> = _ragIndexingState
+
+    private val _ragCompareStats = MutableStateFlow<String?>(null)
+    val ragCompareStats: StateFlow<String?> = _ragCompareStats
+
+    private val _selectedRagStrategy = MutableStateFlow("structural")
+    val selectedRagStrategy: StateFlow<String> = _selectedRagStrategy
+
+    private val _ragTopK = MutableStateFlow(3)
+    val ragTopK: StateFlow<Int> = _ragTopK
+
+    private val _lastRagResults = MutableStateFlow<List<RagSearchResult>?>(null)
+    val lastRagResults: StateFlow<List<RagSearchResult>?> = _lastRagResults
+
     private var schedulerPollingJob: kotlinx.coroutines.Job? = null
 
     val systemPromptInput = MutableStateFlow("")
@@ -251,11 +285,56 @@ class AgentViewModel(
                 }
 
                 val apiMessages = contextResult.messages
+                // RAG: автоматически ищем релевантные чанки и добавляем в контекст
+                val ragContextInjection = if (_ragIndexingState.value is RagIndexingState.Done
+                    && _mcpStatus.value == McpStatus.CONNECTED) {
+                    runCatching {
+                        val searchArgs = buildJsonObject {
+                            put("query", prompt)
+                            put("top_k", _ragTopK.value)
+                            put("strategy", _selectedRagStrategy.value)
+                        }.toString()
+                        val raw = mcpClient.callTool("search_documents", searchArgs)
+                        val results = Json.parseToJsonElement(raw).jsonObject["results"]?.jsonArray
+                        if (results.isNullOrEmpty()) {
+                            Log.w("RAG", "Поиск не вернул результатов для запроса: $prompt")
+                            _lastRagResults.value = emptyList()
+                        }
+                        if (!results.isNullOrEmpty()) {
+                            _lastRagResults.value = results.map { el ->
+                                val o = el.jsonObject
+                                RagSearchResult(
+                                    text = o["text"]?.jsonPrimitive?.content ?: "",
+                                    source = o["source"]?.jsonPrimitive?.content ?: "",
+                                    chunkId = o["chunk_id"]?.jsonPrimitive?.content ?: "",
+                                    score = o["score"]?.jsonPrimitive?.content?.toFloatOrNull() ?: 0f,
+                                    chunkSize = o["chunk_size"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                                    section = o["section"]?.jsonPrimitive?.content ?: "",
+                                    strategy = _selectedRagStrategy.value,
+                                )
+                            }
+                            val chunks = results.joinToString("\n\n---\n\n") { el ->
+                                val o = el.jsonObject
+                                val src  = o["source"]?.jsonPrimitive?.content ?: ""
+                                val text = o["text"]?.jsonPrimitive?.content ?: ""
+                                "[$src]\n$text"
+                            }
+                            Log.d("RAG", "Найдено ${results.size} чанков для запроса (стратегия: ${_selectedRagStrategy.value})")
+                            "\n\n=== КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ ===\n$chunks\n\n[ВАЖНО: отвечай ТОЛЬКО на основе текста выше. Не используй знания из обучения. Если ответа нет в контексте — скажи об этом явно.]\n==="
+                        } else null
+                    }.getOrNull()
+                } else null
+
+                val effectiveSystemPrompt = if (ragContextInjection != null) {
+                    (systemPrompt ?: "") + ragContextInjection
+                } else systemPrompt
+                Log.d("RAG", "effectiveSystemPrompt (первые 500 символов): ${effectiveSystemPrompt?.take(500)}")
+
                 requestJson = try {
                     prettyJson.encodeToString(ResponsesRequestWithHistory(
                         model = model.id,
                         input = apiMessages,
-                        instructions = systemPrompt?.takeIf { it.isNotBlank() },
+                        instructions = effectiveSystemPrompt?.takeIf { it.isNotBlank() },
                         maxOutputTokens = maxTokens,
                         temperature = temperature,
                         topP = topP,
@@ -263,7 +342,12 @@ class AgentViewModel(
                 } catch (se: Exception) {
                     "Serialization error: ${se.message}"
                 }
-                val isMcpActive = _mcpStatus.value == McpStatus.CONNECTED && _mcpTools.value.isNotEmpty()
+
+                // Если был RAG-инжект — не используем agentic loop:
+                // чанки уже в system prompt, LLM должен отвечать только на их основе.
+                val isMcpActive = ragContextInjection == null
+                    && _mcpStatus.value == McpStatus.CONNECTED
+                    && _mcpTools.value.isNotEmpty()
                 val apiResult = if (isMcpActive) {
                     val mcpToolDefs = _mcpTools.value.map { it.toToolDefinition() }
                     val inputItems = buildJsonArray {
@@ -283,7 +367,7 @@ class AgentViewModel(
                         val r = api.askWithTools(
                             inputItems = currentInput,
                             model = model.id,
-                            systemPrompt = systemPrompt,
+                            systemPrompt = effectiveSystemPrompt,
                             tools = mcpToolDefs,
                         )
                         finalUsage = r.usage
@@ -322,7 +406,7 @@ class AgentViewModel(
                     api.askWithHistory(
                         messages = apiMessages,
                         model = model.id,
-                        systemPrompt = systemPrompt,
+                        systemPrompt = effectiveSystemPrompt,
                         maxTokens = maxTokens,
                         temperature = temperature,
                         topP = topP,
@@ -429,7 +513,7 @@ class AgentViewModel(
     // ── MCP ──────────────────────────────────────────────────────────────────
 
     companion object {
-        const val MCP_URL = "http://192.168.0.102:8080"
+        const val MCP_URL = "http://192.168.0.11:8083"
     }
 
     fun connectMcp(url: String = mcpUrl.value) {
@@ -443,6 +527,7 @@ class AgentViewModel(
                 _mcpTools.value = mcpClient.listTools()
                 _mcpStatus.value = McpStatus.CONNECTED
                 startSchedulerPolling()
+                checkExistingRagIndex()
             }.onFailure { e ->
                 Log.e("AgentViewModel", "MCP error: ${e.message}", e)
                 _mcpTools.value = emptyList()
@@ -530,6 +615,92 @@ class AgentViewModel(
                 .onFailure { e -> Log.e("AgentViewModel", "scheduleTask: ${e.message}", e) }
             refreshSchedulerTasks()
         }
+    }
+
+    private suspend fun checkExistingRagIndex() {
+        runCatching { mcpClient.callTool("get_index_stats", "{}") }
+            .onSuccess { raw ->
+                val json = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
+                val chunks = json["structural"]?.jsonObject?.get("chunks")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                if (chunks > 0) {
+                    Log.d("RAG", "Найден существующий индекс: $chunks чанков")
+                    _ragIndexingState.value = RagIndexingState.Done("Готово: $chunks чанков")
+                }
+            }
+    }
+
+    fun resetRagIndexingState() {
+        _ragIndexingState.value = RagIndexingState.Idle
+        _ragCompareStats.value = null
+    }
+
+    fun setRagStrategy(strategy: String) {
+        _selectedRagStrategy.value = strategy
+    }
+
+    fun setRagTopK(k: Int) {
+        _ragTopK.value = k.coerceIn(1, 10)
+    }
+
+    fun loadRagCompareStats() {
+        viewModelScope.launch {
+            runCatching { mcpClient.callTool("compare_strategies", "{}") }
+                .onSuccess { _ragCompareStats.value = it }
+                .onFailure { _ragCompareStats.value = null }
+        }
+    }
+
+    fun indexDocumentsFromPath(path: String) {
+        if (path.isBlank()) return
+        viewModelScope.launch {
+            _ragIndexingState.value = RagIndexingState.Indexing(0, 0, "Запрос к серверу…")
+            Log.d("RAG", "Индексируем папку на сервере: $path")
+            runCatching {
+                val args = buildJsonObject { put("folder_path", path) }.toString()
+                mcpClient.callTool("index_documents", args)
+            }.onSuccess { response ->
+                Log.d("RAG", "Сервер ответил: $response")
+                pollIndexingStatus()
+            }.onFailure { e ->
+                Log.e("RAG", "Ошибка индексации: ${e.message}")
+                _ragIndexingState.value = RagIndexingState.Error(e.message ?: "Ошибка")
+            }
+        }
+    }
+
+    private suspend fun pollIndexingStatus() {
+        Log.d("RAG", "Начинаем polling статуса")
+        repeat(120) { // максимум 120 попыток (6 минут)
+            delay(3_000)
+            runCatching { mcpClient.callTool("get_indexing_status", "{}") }
+                .onSuccess { raw ->
+                    Log.d("RAG", "Статус: $raw")
+                    val json = runCatching {
+                        kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonObject
+                    }.getOrNull() ?: return@onSuccess
+
+                    val state   = json["state"]?.jsonPrimitive?.content ?: "unknown"
+                    val progress = json["progress"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                    val total    = json["total"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                    val message  = json["message"]?.jsonPrimitive?.content ?: ""
+
+                    when (state) {
+                        "done"  -> {
+                            _ragIndexingState.value = RagIndexingState.Done(message)
+                            Log.d("RAG", "Индексация завершена: $message")
+                            return
+                        }
+                        "error" -> {
+                            _ragIndexingState.value = RagIndexingState.Error(message)
+                            Log.e("RAG", "Ошибка индексации: $message")
+                            return
+                        }
+                        else -> _ragIndexingState.value = RagIndexingState.Indexing(progress, total, message)
+                    }
+                }
+                .onFailure { e -> Log.e("RAG", "Polling ошибка: ${e.message}") }
+        }
+        _ragIndexingState.value = RagIndexingState.Error("Превышено время ожидания")
     }
 
     private suspend fun translateCityIfNeeded(toolArgs: String): String {
@@ -630,6 +801,8 @@ class AgentViewModel(
             systemPromptInput.value = ""
             _tokenStats.value = TokenStats()
             _state.value = UiState.Idle
+            _lastRequestLog.value = null
+            _lastRagResults.value = null
             // Reset strategy state
             (strategies[StrategyType.SUMMARY] as? SummaryStrategy)?.resetCompression()
             (strategies[StrategyType.STICKY_FACTS] as? StickyFactsStrategy)?.resetExtraction()

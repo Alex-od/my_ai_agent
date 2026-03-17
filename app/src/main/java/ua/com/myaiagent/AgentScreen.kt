@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import ua.com.myaiagent.data.context.StrategyType
 
-enum class Screen { CHAT, HISTORY, DAY11, DAY13, PIPELINE_AGENT, ORCHESTRATION, PROFILE }
+enum class Screen { CHAT, HISTORY, DAY11, DAY13, PIPELINE_AGENT, ORCHESTRATION, PROFILE, RAG }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,6 +143,16 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         icon = { Icon(Icons.Default.Layers, contentDescription = null) },
                         onClick = {
                             currentScreen = Screen.ORCHESTRATION
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("Неделя 5: RAG") },
+                        selected = currentScreen == Screen.RAG,
+                        icon = { Icon(Icons.Default.Layers, contentDescription = null) },
+                        onClick = {
+                            currentScreen = Screen.RAG
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -375,13 +385,22 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Screen.RAG -> Column {
+                                Text("Неделя 5")
+                                Text(
+                                    text = "RAG — Retrieval-Augmented Generation",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             Screen.PROFILE -> Text("Профили")
                         }
                     },
                     navigationIcon = {
                         if (currentScreen == Screen.HISTORY || currentScreen == Screen.DAY11
                             || currentScreen == Screen.DAY13 || currentScreen == Screen.PIPELINE_AGENT
-                            || currentScreen == Screen.ORCHESTRATION || currentScreen == Screen.PROFILE) {
+                            || currentScreen == Screen.ORCHESTRATION || currentScreen == Screen.PROFILE
+                            || currentScreen == Screen.RAG) {
                             IconButton(onClick = { currentScreen = Screen.CHAT }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                             }
@@ -396,6 +415,14 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                             IconButton(onClick = {
                                 viewModel.startNewChat()
                                 viewModel.clearAllSchedulerTasks()
+                                viewModel.resetRagIndexingState()
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = "Новый чат")
+                            }
+                        }
+                        if (currentScreen == Screen.RAG) {
+                            IconButton(onClick = {
+                                viewModel.startNewChat()
                             }) {
                                 Icon(Icons.Default.Add, contentDescription = "Новый чат")
                             }
@@ -436,6 +463,7 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                     Screen.PIPELINE_AGENT          -> Week4Screen(viewModel = week4ViewModel, modelId = selectedModel.id, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                     Screen.ORCHESTRATION  -> OrchestrationScreen(viewModel = orchestrationViewModel, modelId = selectedModel.id)
                     Screen.PROFILE        -> ProfileScreen()
+                    Screen.RAG            -> RagScreen(viewModel, showLogs = showLogsDialog, onDismissLogs = { showLogsDialog = false })
                 }
             }
         }

@@ -35,6 +35,9 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
@@ -54,7 +58,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,9 +99,11 @@ fun ChatScreen(
     val schedulerTasks by viewModel.schedulerTasks.collectAsState()
     val schedulerResults by viewModel.schedulerResults.collectAsState()
     val selectedSchedulerTaskId by viewModel.selectedSchedulerTaskId.collectAsState()
+    val context = LocalContext.current
     var showSchedulerPanel by remember { mutableStateOf(false) }
     var showCreateTaskDialog by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+
     var logTab by remember { mutableIntStateOf(0) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var showFactsExpanded by remember { mutableStateOf(false) }
@@ -824,6 +835,349 @@ private fun CreateTaskDialog(
 }
 
 @Composable
+internal fun RagIndexPanel(
+    state: RagIndexingState,
+    selectedStrategy: String,
+    onStrategyChange: (String) -> Unit,
+    topK: Int,
+    onTopKChange: (Int) -> Unit,
+    serverPath: String,
+    onServerPathChange: (String) -> Unit,
+    onIndexFromPath: () -> Unit,
+    onCompareClick: () -> Unit,
+) {
+    val isIndexing = state is RagIndexingState.Indexing
+    val isDone = state is RagIndexingState.Done
+    var expanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "RAG — база знаний",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                when (state) {
+                    is RagIndexingState.Indexing -> {
+                        val progress = if (state.total > 0) " ${state.done}/${state.total}" else ""
+                        Text(
+                            text = if (state.message.isNotEmpty()) state.message else "Индексирую…$progress",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    is RagIndexingState.Done ->
+                        Text(state.result.ifEmpty { "Готово" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF2E7D32))
+                    is RagIndexingState.Error ->
+                        Text("Ошибка: ${state.message}", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error)
+                    else -> {}
+                }
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isIndexing) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                } else if (isDone) {
+                    AssistChip(
+                        onClick = onCompareClick,
+                        label = { Text("Сравнить", style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+                Text(
+                    text = if (expanded) "▲" else "▼",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                listOf("fixed" to "Fixed", "structural" to "Structural").forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = selectedStrategy == value,
+                        onClick = { onStrategyChange(value) },
+                        shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("Top-K:", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(
+                    onClick = { onTopKChange(topK - 1) },
+                    modifier = Modifier.padding(0.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) { Text("−") }
+                Text(
+                    text = "$topK",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                TextButton(
+                    onClick = { onTopKChange(topK + 1) },
+                    modifier = Modifier.padding(0.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) { Text("+") }
+            }
+        }
+                // Server-side path indexing
+                if (!isIndexing) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = serverPath,
+                            onValueChange = onServerPathChange,
+                            label = { Text("Путь на сервере", style = MaterialTheme.typography.labelSmall) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                        Button(
+                            onClick = onIndexFromPath,
+                            enabled = serverPath.isNotBlank(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Text("Старт", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun RagResultsPanel(
+    results: List<RagSearchResult>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { onToggle() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (results.isEmpty()) "⚠️ Ничего не найдено"
+                       else "Найдено: ${results.size} чанк${when (results.size) { 1 -> ""; in 2..4 -> "а"; else -> "ов" }}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (results.isEmpty()) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurface,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                results.firstOrNull()?.strategy?.let { strategy ->
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text(strategy, style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = if (strategy == "fixed")
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.tertiaryContainer,
+                        ),
+                    )
+                }
+                Text(
+                    text = if (expanded) "▲" else "▼",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        if (expanded) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                results.forEach { result ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            // Превью текста
+                            Text(
+                                text = result.text.take(120) + if (result.text.length > 120) "…" else "",
+                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                            // Метаданные
+                            Text(
+                                text = "📄 Source: ${result.source}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (result.section.isNotBlank()) {
+                                Text(
+                                    text = "📌 Section: ${result.section}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "📏 ${result.chunkSize} симв.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "🎯 Score: ${"%.3f".format(result.score)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun RagCompareDialog(statsJson: String?, onDismiss: () -> Unit) {
+    val fixed    = remember(statsJson) { parseStrategyBlock(statsJson, "fixed") }
+    val struct   = remember(statsJson) { parseStrategyBlock(statsJson, "structural") }
+    val recommend = remember(statsJson) {
+        runCatching {
+            Json.parseToJsonElement(statsJson ?: "")
+                .jsonObject["recommendation"]?.jsonPrimitive?.content
+        }.getOrNull() ?: "—"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сравнение стратегий чанкинга") },
+        text = {
+            if (statsJson == null) {
+                CircularProgressIndicator()
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        StrategyCard("Fixed", fixed, MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.weight(1f))
+                        StrategyCard("Structural", struct, MaterialTheme.colorScheme.tertiaryContainer,
+                            modifier = Modifier.weight(1f))
+                    }
+                    HorizontalDivider()
+                    Text(
+                        text = "Рекомендация: $recommend",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        },
+    )
+}
+
+@Composable
+private fun StrategyCard(
+    title: String,
+    stats: Map<String, String>,
+    containerColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(containerColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        stats.forEach { (key, value) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(key, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+private fun parseStrategyBlock(json: String?, key: String): Map<String, String> {
+    if (json == null) return emptyMap()
+    return runCatching {
+        val obj = Json.parseToJsonElement(json).jsonObject[key]?.jsonObject ?: return emptyMap()
+        obj.entries.associate { (k, v) ->
+            val label = when (k) {
+                "chunks"            -> "Чанков"
+                "avg_chars"         -> "Средн. символов"
+                "overlap"           -> "Overlap"
+                "files_covered"     -> "Файлов"
+                "sections_detected" -> "Секций"
+                else -> k
+            }
+            label to v.jsonPrimitive.content
+        }
+    }.getOrElse { emptyMap() }
+}
+
+@Composable
 private fun TokenStatsBar(stats: TokenStats, contextInfo: String, strategy: StrategyType) {
     Column(
         modifier = Modifier
@@ -910,7 +1264,7 @@ private fun TokenStatsBar(stats: TokenStats, contextInfo: String, strategy: Stra
 }
 
 @Composable
-private fun MessageBubble(message: UiMessage) {
+internal fun MessageBubble(message: UiMessage) {
     val isUser = message.role == "user"
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -928,13 +1282,15 @@ private fun MessageBubble(message: UiMessage) {
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            if (isUser) {
-                Text(text = message.content)
-            } else {
-                Markdown(
-                    content = message.content,
-                    modifier = Modifier.widthIn(max = 300.dp),
-                )
+            SelectionContainer {
+                if (isUser) {
+                    Text(text = message.content)
+                } else {
+                    Markdown(
+                        content = message.content,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                    )
+                }
             }
         }
     }

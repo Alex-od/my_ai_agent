@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +49,7 @@ import org.koin.androidx.compose.koinViewModel
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RagScreen(
-    viewModel: AgentViewModel = koinViewModel(),
+    viewModel: AgentViewModel,
     showLogs: Boolean = false,
     onDismissLogs: () -> Unit = {},
 ) {
@@ -69,7 +70,7 @@ fun RagScreen(
     var showMcpMenu by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var logTab by remember { mutableIntStateOf(0) }
-    var serverPath by remember { mutableStateOf("C:\\MyClaudeAgents\\forindexation") }
+    var serverPath by rememberSaveable { mutableStateOf("C:\\MyClaudeAgents\\forindexation") }
 
     val listState = rememberLazyListState()
 
@@ -174,6 +175,14 @@ fun RagScreen(
         SpeakButton(text = lastAssistantText)
 
         // RAG панели
+        if (mcpStatus == McpStatus.CONNECTED && !mcpTools.any { it.name == "get_indexing_status" }) {
+            Text(
+                text = "Сервер не поддерживает RAG. Подключитесь к rag_server.py (порт 8083).",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
         if (mcpStatus == McpStatus.CONNECTED && mcpTools.any { it.name == "get_indexing_status" }) {
             RagIndexPanel(
                 state = ragIndexingState,

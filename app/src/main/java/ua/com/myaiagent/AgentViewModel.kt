@@ -203,6 +203,7 @@ class AgentViewModel(
     val lastRagResults: StateFlow<List<RagSearchResult>?> = _lastRagResults
 
     private var schedulerPollingJob: kotlinx.coroutines.Job? = null
+    private var indexingPollingJob: kotlinx.coroutines.Job? = null
 
     val systemPromptInput = MutableStateFlow("")
     val temperatureInput = MutableStateFlow("")
@@ -621,10 +622,12 @@ class AgentViewModel(
         runCatching { mcpClient.callTool("get_index_stats", "{}") }
             .onSuccess { raw ->
                 val json = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
-                val chunks = json["structural"]?.jsonObject?.get("chunks")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                if (chunks > 0) {
-                    Log.d("RAG", "Найден существующий индекс: $chunks чанков")
-                    _ragIndexingState.value = RagIndexingState.Done("Готово: $chunks чанков")
+                val structChunks = json["structural"]?.jsonObject?.get("chunks")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                val fixedChunks  = json["fixed"]?.jsonObject?.get("chunks")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                val total = structChunks + fixedChunks
+                if (total > 0) {
+                    Log.d("RAG", "Найден существующий индекс: structural=$structChunks, fixed=$fixedChunks")
+                    _ragIndexingState.value = RagIndexingState.Done("Готово: $structChunks structural + $fixedChunks fixed")
                 }
             }
     }
@@ -652,7 +655,8 @@ class AgentViewModel(
 
     fun indexDocumentsFromPath(path: String) {
         if (path.isBlank()) return
-        viewModelScope.launch {
+        indexingPollingJob?.cancel()
+        indexingPollingJob = viewModelScope.launch {
             _ragIndexingState.value = RagIndexingState.Indexing(0, 0, "Запрос к серверу…")
             Log.d("RAG", "Индексируем папку на сервере: $path")
             runCatching {
@@ -670,16 +674,18 @@ class AgentViewModel(
 
     private suspend fun pollIndexingStatus() {
         Log.d("RAG", "Начинаем polling статуса")
+        var networkErrors = 0
         repeat(120) { // максимум 120 попыток (6 минут)
             delay(3_000)
             runCatching { mcpClient.callTool("get_indexing_status", "{}") }
                 .onSuccess { raw ->
+                    networkErrors = 0
                     Log.d("RAG", "Статус: $raw")
                     val json = runCatching {
                         kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonObject
                     }.getOrNull() ?: return@onSuccess
 
-                    val state   = json["state"]?.jsonPrimitive?.content ?: "unknown"
+                    val state    = json["state"]?.jsonPrimitive?.content ?: "unknown"
                     val progress = json["progress"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
                     val total    = json["total"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
                     val message  = json["message"]?.jsonPrimitive?.content ?: ""
@@ -698,7 +704,14 @@ class AgentViewModel(
                         else -> _ragIndexingState.value = RagIndexingState.Indexing(progress, total, message)
                     }
                 }
-                .onFailure { e -> Log.e("RAG", "Polling ошибка: ${e.message}") }
+                .onFailure { e ->
+                    networkErrors++
+                    Log.e("RAG", "Polling ошибка ($networkErrors/3): ${e.message}")
+                    if (networkErrors >= 3) {
+                        _ragIndexingState.value = RagIndexingState.Error("Сервер недоступен")
+                        return
+                    }
+                }
         }
         _ragIndexingState.value = RagIndexingState.Error("Превышено время ожидания")
     }

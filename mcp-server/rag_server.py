@@ -201,9 +201,11 @@ def build_stats(fixed_meta: list[dict], struct_meta: list[dict]) -> dict:
 # ── Состояние фоновой индексации ───────────────────────────────────────────────
 
 _indexing_status = {"state": "idle", "progress": 0, "total": 0, "message": ""}
+_status_lock = threading.Lock()
 
 def _set_status(state: str, progress: int = 0, total: int = 0, message: str = ""):
-    _indexing_status.update(state=state, progress=progress, total=total, message=message)
+    with _status_lock:
+        _indexing_status.update(state=state, progress=progress, total=total, message=message)
 
 
 def _run_indexing(docs_or_files, mode: str):
@@ -242,7 +244,11 @@ def _run_indexing(docs_or_files, mode: str):
                 futures = {ex.submit(embed, make_embed_text(c, metas[i])): i for i, c in enumerate(chunks)}
                 for fut in as_completed(futures):
                     i = futures[fut]
-                    results[i] = fut.result()
+                    try:
+                        results[i] = fut.result()
+                    except Exception as e:
+                        print(f"[WARN] Ошибка эмбеддинга чанка {i}: {e}")
+                        results[i] = [0.0] * EMBED_DIM  # нулевой вектор вместо краша
                     done[0] += 1
                     _set_status("embedding", offset + done[0], total,
                                 f"{label} {done[0]}/{len(chunks)}")
@@ -447,7 +453,8 @@ def handle_index_documents_content(args: dict) -> dict:
 
 
 def handle_get_indexing_status(_args: dict) -> dict:
-    return dict(_indexing_status)
+    with _status_lock:
+        return dict(_indexing_status)
 
 
 TOOL_HANDLERS = {

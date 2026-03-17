@@ -41,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableIntStateOf
 import com.mikepenz.markdown.m3.Markdown
@@ -64,6 +65,7 @@ fun RagScreen(
     val selectedRagStrategy by viewModel.selectedRagStrategy.collectAsState()
     val lastRagResults by viewModel.lastRagResults.collectAsState()
     val ragTopK by viewModel.ragTopK.collectAsState()
+    val ragEnabled by viewModel.ragEnabled.collectAsState()
 
     var showRagCompareDialog by remember { mutableStateOf(false) }
     var ragResultsExpanded by remember { mutableStateOf(true) }
@@ -124,33 +126,62 @@ fun RagScreen(
                     onDismissRequest = { showMcpMenu = false },
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(260.dp)) {
-                        OutlinedTextField(
-                            value = mcpUrl,
-                            onValueChange = { viewModel.mcpUrl.value = it },
-                            label = { Text("MCP URL") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Button(
-                            onClick = {
-                                viewModel.connectMcp(mcpUrl)
-                                showMcpMenu = false
-                            },
-                            enabled = mcpStatus != McpStatus.CONNECTING,
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        ) {
-                            Text("Connect")
-                        }
-                        if (mcpTools.isNotEmpty()) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                            mcpTools.forEach { tool ->
-                                Text(
-                                    text = tool.name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(vertical = 1.dp),
+                        if (mcpStatus == McpStatus.CONNECTED) {
+                            // Подключено: RAG toggle + Disconnect
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("RAG", style = MaterialTheme.typography.labelMedium)
+                                Switch(
+                                    checked = ragEnabled,
+                                    onCheckedChange = { viewModel.setRagEnabled(it) },
                                 )
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                            if (mcpTools.isNotEmpty()) {
+                                mcpTools.forEach { tool ->
+                                    Text(
+                                        text = tool.name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(vertical = 1.dp),
+                                    )
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                            }
+                            Button(
+                                onClick = {
+                                    viewModel.disconnectMcp()
+                                    showMcpMenu = false
+                                },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Disconnect")
+                            }
+                        } else {
+                            // Не подключено: URL + Connect
+                            OutlinedTextField(
+                                value = mcpUrl,
+                                onValueChange = { viewModel.mcpUrl.value = it },
+                                label = { Text("MCP URL") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                onClick = {
+                                    viewModel.connectMcp(mcpUrl)
+                                    showMcpMenu = false
+                                },
+                                enabled = mcpStatus != McpStatus.CONNECTING,
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            ) {
+                                Text("Connect")
                             }
                         }
                     }

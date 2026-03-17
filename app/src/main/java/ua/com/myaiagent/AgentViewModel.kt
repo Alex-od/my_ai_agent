@@ -190,6 +190,9 @@ class AgentViewModel(
     private val _ragIndexingState = MutableStateFlow<RagIndexingState>(RagIndexingState.Idle)
     val ragIndexingState: StateFlow<RagIndexingState> = _ragIndexingState
 
+    private val _ragEnabled = MutableStateFlow(true)
+    val ragEnabled: StateFlow<Boolean> = _ragEnabled
+
     private val _ragCompareStats = MutableStateFlow<String?>(null)
     val ragCompareStats: StateFlow<String?> = _ragCompareStats
 
@@ -287,7 +290,8 @@ class AgentViewModel(
 
                 val apiMessages = contextResult.messages
                 // RAG: автоматически ищем релевантные чанки и добавляем в контекст
-                val ragContextInjection = if (_ragIndexingState.value is RagIndexingState.Done
+                val ragContextInjection = if (_ragEnabled.value
+                    && _ragIndexingState.value is RagIndexingState.Done
                     && _mcpStatus.value == McpStatus.CONNECTED) {
                     runCatching {
                         val searchArgs = buildJsonObject {
@@ -514,7 +518,18 @@ class AgentViewModel(
     // ── MCP ──────────────────────────────────────────────────────────────────
 
     companion object {
-        const val MCP_URL = "http://192.168.0.11:8083"
+        const val MCP_URL = "http://192.168.0.13:8083"
+    }
+
+    fun setRagEnabled(enabled: Boolean) {
+        _ragEnabled.value = enabled
+    }
+
+    fun disconnectMcp() {
+        _mcpStatus.value = McpStatus.DISCONNECTED
+        _mcpTools.value = emptyList()
+        _mcpServerName.value = ""
+        schedulerPollingJob?.cancel()
     }
 
     fun connectMcp(url: String = mcpUrl.value) {

@@ -41,9 +41,76 @@ EMBED_MODEL = "nomic-embed-text"
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".pdf"}
 
+AUTO_INDEX_PATH = os.environ.get("RAG_AUTO_INDEX_PATH", r"C:\MyClaudeAgents\forindexation")
+
+RERANKER_MODELS = [
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    "BAAI/bge-reranker-base",
+]
+DEFAULT_RERANKER_MODEL    = RERANKER_MODELS[0]
+DEFAULT_RERANK_THRESHOLD  = 0.3
+DEFAULT_TOP_K_INITIAL     = 10
+DEFAULT_TOP_K_FINAL       = 3
+
 # ── FastAPI ────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
+
+# ── RerankerService ────────────────────────────────────────────────────────────
+
+class RerankerService:
+    """Lazy-loading cache for CrossEncoder models."""
+
+    def __init__(self):
+        self._models: dict = {}
+        self._lock = threading.Lock()
+
+    def get_model(self, model_name: str):
+        with self._lock:
+            if model_name not in self._models:
+                from sentence_transformers import CrossEncoder  # noqa: PLC0415
+                print(f"[RerankerService] Загружаем модель: {model_name}")
+                self._models[model_name] = CrossEncoder(model_name)
+                print(f"[RerankerService] Модель загружена: {model_name}")
+        return self._models[model_name]
+
+    def rerank(self, query: str, chunks: list, model_name: str) -> list:
+        """Возвращает копию chunks с добавленным reranker_score, отсортированную по убыванию."""
+        model = self.get_model(model_name)
+        pairs = [(query, c["text"]) for c in chunks]
+        raw_scores = model.predict(pairs)
+        enriched = []
+        for chunk, logit in zip(chunks, raw_scores):
+            sigmoid = 1.0 / (1.0 + math.exp(-float(logit)))
+            enriched.append({**chunk, "reranker_score": round(sigmoid, 4)})
+        return sorted(enriched, key=lambda x: x["reranker_score"], reverse=True)
+
+
+reranker_service = RerankerService()
+
+
+@app.on_event("startup")
+async def auto_index_on_startup():
+    """Авто-индексация при старте сервера — только если индекс ещё не создан."""
+    if FIXED_INDEX_FILE.exists() and STRUCT_INDEX_FILE.exists():
+        print("[AutoIndex] Индекс уже существует — пропускаем")
+        return
+    folder = pathlib.Path(AUTO_INDEX_PATH)
+    if not folder.exists():
+        print(f"[AutoIndex] Папка не найдена: {AUTO_INDEX_PATH}")
+        return
+    try:
+        docs = load_documents(AUTO_INDEX_PATH)
+        if not docs:
+            print(f"[AutoIndex] Нет файлов в {AUTO_INDEX_PATH}")
+            return
+        print(f"[AutoIndex] Запускаем индексацию {len(docs)} файлов из {AUTO_INDEX_PATH}")
+        _set_status("chunking", 0, len(docs), "Авто-индексация при старте…")
+        threading.Thread(target=_run_indexing, args=(docs, "path"), daemon=True).start()
+    except Exception as e:
+        print(f"[AutoIndex] Ошибка: {e}")
+
 
 # ── Вспомогательные функции ────────────────────────────────────────────────────
 
@@ -303,7 +370,9 @@ TOOLS = [
         "name": "search_documents",
         "description": (
             "Семантический поиск по проиндексированным документам. "
-            "Конвертирует запрос в эмбеддинг, ищет top-k похожих чанков через FAISS."
+            "Конвертирует запрос в эмбеддинг, ищет top_k_initial чанков через FAISS, "
+            "затем (опционально) реранкирует cross-encoder моделью, фильтрует по порогу "
+            "и возвращает top_k_final результатов."
         ),
         "inputSchema": {
             "type": "object",
@@ -320,8 +389,34 @@ TOOLS = [
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Кол-во результатов (default: 3)",
+                    "description": "Алиас для top_k_final (обратная совместимость, default: 3)",
                     "default": 3,
+                },
+                "top_k_initial": {
+                    "type": "integer",
+                    "description": "Сколько кандидатов взять из FAISS до реранкинга (default: 10)",
+                    "default": 10,
+                },
+                "top_k_final": {
+                    "type": "integer",
+                    "description": "Сколько результатов вернуть после фильтрации (default: 3)",
+                    "default": 3,
+                },
+                "reranker_enabled": {
+                    "type": "boolean",
+                    "description": "Включить cross-encoder реранкинг (default: false)",
+                    "default": False,
+                },
+                "reranker_model": {
+                    "type": "string",
+                    "enum": RERANKER_MODELS,
+                    "description": f"Модель реранкера (default: {DEFAULT_RERANKER_MODEL})",
+                    "default": DEFAULT_RERANKER_MODEL,
+                },
+                "rerank_threshold": {
+                    "type": "number",
+                    "description": "Порог отсечения по reranker_score 0.0–1.0 (default: 0.3)",
+                    "default": DEFAULT_RERANK_THRESHOLD,
                 },
             },
             "required": ["query"],
@@ -369,7 +464,17 @@ def handle_index_documents(args: dict) -> dict:
 def handle_search_documents(args: dict) -> dict:
     query    = args.get("query", "")
     strategy = args.get("strategy", "structural")
-    top_k    = int(args.get("top_k", 3))
+
+    # Reranker params
+    reranker_enabled  = bool(args.get("reranker_enabled", False))
+    reranker_model    = args.get("reranker_model", DEFAULT_RERANKER_MODEL)
+    rerank_threshold  = float(args.get("rerank_threshold", DEFAULT_RERANK_THRESHOLD))
+
+    # top_k_initial: сколько взять из FAISS
+    top_k_initial = int(args.get("top_k_initial",
+                                  DEFAULT_TOP_K_INITIAL if reranker_enabled else args.get("top_k", DEFAULT_TOP_K_FINAL)))
+    # top_k_final: сколько вернуть (top_k — алиас для обратной совместимости)
+    top_k_final = int(args.get("top_k_final", args.get("top_k", DEFAULT_TOP_K_FINAL)))
 
     if not query:
         return {"error": "query обязателен"}
@@ -384,24 +489,52 @@ def handle_search_documents(args: dict) -> dict:
 
     vec = embed(query)
     q = np.array([vec], dtype=np.float32)
-    k = min(top_k, index.ntotal)
-    distances, indices = index.search(q, k)
+    k = min(top_k_initial, index.ntotal)
+    distances, indices_arr = index.search(q, k)
 
-    results = []
-    for dist, idx in zip(distances[0], indices[0]):
+    candidates = []
+    for dist, idx in zip(distances[0], indices_arr[0]):
         if idx < 0 or idx >= len(metadata):
             continue
         meta = metadata[idx]
-        results.append({
-            "chunk_id":   meta["chunk_id"],
-            "source":     meta["source"],
-            "section":    meta["section"],
-            "score":      round(float(dist), 4),
-            "chunk_size": len(meta["text"]),
-            "strategy":   strategy,
-            "text":       meta["text"][:500] + ("..." if len(meta["text"]) > 500 else ""),
+        candidates.append({
+            "chunk_id":       meta["chunk_id"],
+            "source":         meta["source"],
+            "section":        meta["section"],
+            "score":          round(float(dist), 4),
+            "chunk_size":     len(meta["text"]),
+            "strategy":       strategy,
+            "text":           meta["text"][:500] + ("..." if len(meta["text"]) > 500 else ""),
+            "reranker_score": None,
         })
-    return {"strategy": strategy, "query": query, "results": results}
+
+    retrieved_count = len(candidates)
+    filtered_count  = 0
+    reranker_error  = None
+
+    if reranker_enabled and candidates:
+        try:
+            candidates = reranker_service.rerank(query, candidates, reranker_model)
+            before_filter  = len(candidates)
+            candidates     = [c for c in candidates if c["reranker_score"] >= rerank_threshold]
+            filtered_count = before_filter - len(candidates)
+        except Exception as e:
+            reranker_error = str(e)
+            print(f"[WARN] Реранкер упал, возвращаем FAISS-результаты: {e}")
+
+    results = candidates[:top_k_final]
+
+    response = {
+        "strategy":        strategy,
+        "query":           query,
+        "retrieved_count": retrieved_count,
+        "filtered_count":  filtered_count,
+        "final_count":     len(results),
+        "results":         results,
+    }
+    if reranker_error:
+        response["reranker_error"] = reranker_error
+    return response
 
 
 def handle_get_index_stats(_args: dict) -> dict:

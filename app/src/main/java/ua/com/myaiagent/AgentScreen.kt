@@ -423,7 +423,6 @@ fun AgentScreen(viewModel: AgentViewModel = koinViewModel()) {
                         if (currentScreen == Screen.RAG) {
                             IconButton(onClick = {
                                 viewModel.startNewChat()
-                                viewModel.resetRagIndexingState()
                             }) {
                                 Icon(Icons.Default.Add, contentDescription = "Новый чат")
                             }

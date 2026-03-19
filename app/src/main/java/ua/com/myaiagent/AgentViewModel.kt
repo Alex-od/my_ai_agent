@@ -87,6 +87,13 @@ data class RagSearchResult(
     val chunkSize: Int,
     val section: String,
     val strategy: String,
+    val rerankerScore: Float? = null,
+)
+
+data class RagSearchStats(
+    val retrievedCount: Int,
+    val filteredCount: Int,
+    val finalCount: Int,
 )
 
 sealed class RagIndexingState {
@@ -199,11 +206,26 @@ class AgentViewModel(
     private val _selectedRagStrategy = MutableStateFlow("structural")
     val selectedRagStrategy: StateFlow<String> = _selectedRagStrategy
 
-    private val _ragTopK = MutableStateFlow(3)
-    val ragTopK: StateFlow<Int> = _ragTopK
+    private val _ragTopKFinal = MutableStateFlow(3)
+    val ragTopKFinal: StateFlow<Int> = _ragTopKFinal
+
+    private val _ragTopKInitial = MutableStateFlow(DEFAULT_TOP_K_INITIAL)
+    val ragTopKInitial: StateFlow<Int> = _ragTopKInitial
+
+    private val _ragRerankerEnabled = MutableStateFlow(false)
+    val ragRerankerEnabled: StateFlow<Boolean> = _ragRerankerEnabled
+
+    private val _ragRerankerModel = MutableStateFlow(RERANKER_MODELS[0])
+    val ragRerankerModel: StateFlow<String> = _ragRerankerModel
+
+    private val _ragRerankerThreshold = MutableStateFlow(DEFAULT_RERANKER_THRESHOLD)
+    val ragRerankerThreshold: StateFlow<Float> = _ragRerankerThreshold
 
     private val _lastRagResults = MutableStateFlow<List<RagSearchResult>?>(null)
     val lastRagResults: StateFlow<List<RagSearchResult>?> = _lastRagResults
+
+    private val _ragLastSearchStats = MutableStateFlow<RagSearchStats?>(null)
+    val ragLastSearchStats: StateFlow<RagSearchStats?> = _ragLastSearchStats
 
     private var schedulerPollingJob: kotlinx.coroutines.Job? = null
     private var indexingPollingJob: kotlinx.coroutines.Job? = null
@@ -234,6 +256,7 @@ class AgentViewModel(
             val nonSystem = session.messages.filter { it.role != "system" }
             _messages.value = nonSystem.map { UiMessage(it.role, it.content) }
         }
+        connectMcp()
     }
 
     fun descriptionFor(type: StrategyType): String = strategies[type]?.description ?: ""
@@ -249,7 +272,7 @@ class AgentViewModel(
         viewModelScope.launch { refreshStrategyData() }
     }
 
-    fun send(prompt: String) {
+    fun send(prompt: String, useHistory: Boolean = true) {
         if (prompt.isBlank()) return
         val temperature = temperatureInput.value.toDoubleOrNull()
         val topP = topPInput.value.toDoubleOrNull()
@@ -296,11 +319,26 @@ class AgentViewModel(
                     runCatching {
                         val searchArgs = buildJsonObject {
                             put("query", prompt)
-                            put("top_k", _ragTopK.value)
                             put("strategy", _selectedRagStrategy.value)
+                            put("top_k_final", _ragTopKFinal.value)
+                            put("reranker_enabled", _ragRerankerEnabled.value)
+                            if (_ragRerankerEnabled.value) {
+                                put("top_k_initial", _ragTopKInitial.value)
+                                put("reranker_model", _ragRerankerModel.value)
+                                put("rerank_threshold", _ragRerankerThreshold.value.toDouble())
+                            }
                         }.toString()
                         val raw = mcpClient.callTool("search_documents", searchArgs)
-                        val results = Json.parseToJsonElement(raw).jsonObject["results"]?.jsonArray
+                        val responseObj = Json.parseToJsonElement(raw).jsonObject
+                        val results = responseObj["results"]?.jsonArray
+
+                        // Сохраняем статистику поиска
+                        _ragLastSearchStats.value = RagSearchStats(
+                            retrievedCount = responseObj["retrieved_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: (results?.size ?: 0),
+                            filteredCount  = responseObj["filtered_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                            finalCount     = responseObj["final_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: (results?.size ?: 0),
+                        )
+
                         if (results.isNullOrEmpty()) {
                             Log.w("RAG", "Поиск не вернул результатов для запроса: $prompt")
                             _lastRagResults.value = emptyList()
@@ -316,6 +354,7 @@ class AgentViewModel(
                                     chunkSize = o["chunk_size"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                                     section = o["section"]?.jsonPrimitive?.content ?: "",
                                     strategy = _selectedRagStrategy.value,
+                                    rerankerScore = o["reranker_score"]?.jsonPrimitive?.content?.toFloatOrNull(),
                                 )
                             }
                             val chunks = results.joinToString("\n\n---\n\n") { el ->
@@ -324,8 +363,8 @@ class AgentViewModel(
                                 val text = o["text"]?.jsonPrimitive?.content ?: ""
                                 "[$src]\n$text"
                             }
-                            Log.d("RAG", "Найдено ${results.size} чанков для запроса (стратегия: ${_selectedRagStrategy.value})")
-                            "\n\n=== КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ ===\n$chunks\n\n[ВАЖНО: отвечай ТОЛЬКО на основе текста выше. Не используй знания из обучения. Если ответа нет в контексте — скажи об этом явно.]\n==="
+                            Log.d("RAG", "Найдено ${results.size} чанков для запроса (стратегия: ${_selectedRagStrategy.value}, реранкер: ${_ragRerankerEnabled.value})")
+                            "\n\n=== КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ ===\n$chunks\n\n[ВАЖНО: отвечай ТОЛЬКО на основе текста выше. Не используй знания из обучения. Если ответа нет в контексте — скажи об этом явно. При каждом использовании информации из документа обязательно указывай его название в формате «Источник: название_файла».]\n==="
                         } else null
                     }.getOrNull()
                 } else null
@@ -333,12 +372,19 @@ class AgentViewModel(
                 val effectiveSystemPrompt = if (ragContextInjection != null) {
                     (systemPrompt ?: "") + ragContextInjection
                 } else systemPrompt
+
+                // RAG или noHistory режим: только текущий вопрос, без истории диалога
+                val effectiveMessages = if (!useHistory || ragContextInjection != null) {
+                    listOf(ua.com.myaiagent.data.ConversationMessage(role = "user", content = prompt))
+                } else {
+                    apiMessages
+                }
                 Log.d("RAG", "effectiveSystemPrompt (первые 500 символов): ${effectiveSystemPrompt?.take(500)}")
 
                 requestJson = try {
                     prettyJson.encodeToString(ResponsesRequestWithHistory(
                         model = model.id,
-                        input = apiMessages,
+                        input = effectiveMessages,
                         instructions = effectiveSystemPrompt?.takeIf { it.isNotBlank() },
                         maxOutputTokens = maxTokens,
                         temperature = temperature,
@@ -409,7 +455,7 @@ class AgentViewModel(
                     ua.com.myaiagent.data.ApiResult(finalText, finalUsage)
                 } else {
                     api.askWithHistory(
-                        messages = apiMessages,
+                        messages = effectiveMessages,
                         model = model.id,
                         systemPrompt = effectiveSystemPrompt,
                         maxTokens = maxTokens,
@@ -518,7 +564,15 @@ class AgentViewModel(
     // ── MCP ──────────────────────────────────────────────────────────────────
 
     companion object {
-        const val MCP_URL = "http://192.168.0.13:8083"
+        const val MCP_URL = "http://127.0.0.1:8083"
+
+        val RERANKER_MODELS = listOf(
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "cross-encoder/ms-marco-MiniLM-L-12-v2",
+            "BAAI/bge-reranker-base",
+        )
+        const val DEFAULT_RERANKER_THRESHOLD = 0.3f
+        const val DEFAULT_TOP_K_INITIAL = 10
     }
 
     fun setRagEnabled(enabled: Boolean) {
@@ -643,6 +697,19 @@ class AgentViewModel(
                 if (total > 0) {
                     Log.d("RAG", "Найден существующий индекс: structural=$structChunks, fixed=$fixedChunks")
                     _ragIndexingState.value = RagIndexingState.Done("Готово: $structChunks structural + $fixedChunks fixed")
+                } else {
+                    // Индекс пуст — возможно сервер ещё индексирует (авто-старт)
+                    runCatching { mcpClient.callTool("get_indexing_status", "{}") }
+                        .onSuccess { statusRaw ->
+                            val s = runCatching { Json.parseToJsonElement(statusRaw).jsonObject }.getOrNull() ?: return@onSuccess
+                            val state = s["state"]?.jsonPrimitive?.content ?: "idle"
+                            if (state != "idle" && state != "done" && state != "error") {
+                                Log.d("RAG", "Сервер индексирует ($state) — запускаем polling")
+                                _ragIndexingState.value = RagIndexingState.Indexing(0, 0, "Авто-индексация…")
+                                indexingPollingJob?.cancel()
+                                indexingPollingJob = viewModelScope.launch { pollIndexingStatus() }
+                            }
+                        }
                 }
             }
     }
@@ -656,8 +723,24 @@ class AgentViewModel(
         _selectedRagStrategy.value = strategy
     }
 
-    fun setRagTopK(k: Int) {
-        _ragTopK.value = k.coerceIn(1, 10)
+    fun setTopKFinal(k: Int) {
+        _ragTopKFinal.value = k.coerceIn(1, 10)
+    }
+
+    fun setTopKInitial(k: Int) {
+        _ragTopKInitial.value = k.coerceIn(1, 20)
+    }
+
+    fun setRerankerEnabled(enabled: Boolean) {
+        _ragRerankerEnabled.value = enabled
+    }
+
+    fun setRerankerModel(model: String) {
+        if (model in RERANKER_MODELS) _ragRerankerModel.value = model
+    }
+
+    fun setRerankerThreshold(threshold: Float) {
+        _ragRerankerThreshold.value = threshold.coerceIn(0f, 1f)
     }
 
     fun loadRagCompareStats() {
@@ -831,6 +914,7 @@ class AgentViewModel(
             _state.value = UiState.Idle
             _lastRequestLog.value = null
             _lastRagResults.value = null
+            _ragLastSearchStats.value = null
             // Reset strategy state
             (strategies[StrategyType.SUMMARY] as? SummaryStrategy)?.resetCompression()
             (strategies[StrategyType.STICKY_FACTS] as? StickyFactsStrategy)?.resetExtraction()

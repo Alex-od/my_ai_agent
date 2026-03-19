@@ -61,6 +61,12 @@ import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -834,21 +840,37 @@ private fun CreateTaskDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RagIndexPanel(
     state: RagIndexingState,
+    ragEnabled: Boolean,
+    onRagEnabledChange: (Boolean) -> Unit,
     selectedStrategy: String,
     onStrategyChange: (String) -> Unit,
-    topK: Int,
-    onTopKChange: (Int) -> Unit,
-    serverPath: String,
-    onServerPathChange: (String) -> Unit,
-    onIndexFromPath: () -> Unit,
+    topKFinal: Int,
+    onTopKFinalChange: (Int) -> Unit,
+    topKInitial: Int,
+    onTopKInitialChange: (Int) -> Unit,
+    rerankerEnabled: Boolean,
+    onRerankerEnabledChange: (Boolean) -> Unit,
+    rerankerModel: String,
+    onRerankerModelChange: (String) -> Unit,
+    rerankerThreshold: Float,
+    onRerankerThresholdChange: (Float) -> Unit,
     onCompareClick: () -> Unit,
 ) {
     val isIndexing = state is RagIndexingState.Indexing
     val isDone = state is RagIndexingState.Done
     var expanded by remember { mutableStateOf(false) }
+    var modelDropdownExpanded by remember { mutableStateOf(false) }
+
+    val modelDisplayNames = mapOf(
+        "cross-encoder/ms-marco-MiniLM-L-6-v2"  to "MiniLM-L6 (быстрая)",
+        "cross-encoder/ms-marco-MiniLM-L-12-v2" to "MiniLM-L12 (точнее)",
+        "BAAI/bge-reranker-base"                 to "BGE Base (мультиязычная)",
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -861,11 +883,14 @@ internal fun RagIndexPanel(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            // Статус — кликабелен для разворачивания
+            Column(
+                modifier = Modifier.weight(1f).clickable { expanded = !expanded },
+            ) {
                 Text(
                     text = "RAG — база знаний",
                     style = MaterialTheme.typography.labelSmall,
@@ -896,82 +921,170 @@ internal fun RagIndexPanel(
             ) {
                 if (isIndexing) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                } else if (isDone) {
-                    AssistChip(
-                        onClick = onCompareClick,
-                        label = { Text("Сравнить", style = MaterialTheme.typography.labelSmall) },
-                    )
                 }
+                Switch(
+                    checked = ragEnabled,
+                    onCheckedChange = onRagEnabledChange,
+                )
                 Text(
                     text = if (expanded) "▲" else "▼",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clickable { expanded = !expanded },
                 )
             }
         }
         AnimatedVisibility(visible = expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
-                listOf("fixed" to "Fixed", "structural" to "Structural").forEachIndexed { i, (value, label) ->
-                    SegmentedButton(
-                        selected = selectedStrategy == value,
-                        onClick = { onStrategyChange(value) },
-                        shape = SegmentedButtonDefaults.itemShape(i, 2),
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                // ── Стратегия ──────────────────────────────────────────────────
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("fixed" to "Fixed", "structural" to "Structural").forEachIndexed { i, (value, label) ->
+                        SegmentedButton(
+                            selected = selectedStrategy == value,
+                            onClick = { onStrategyChange(value) },
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+
+                // ── Реранкер toggle ────────────────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "Реранкер",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Switch(
+                        checked = rerankerEnabled,
+                        onCheckedChange = onRerankerEnabledChange,
                     )
                 }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("Top-K:", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(
-                    onClick = { onTopKChange(topK - 1) },
-                    modifier = Modifier.padding(0.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                ) { Text("−") }
-                Text(
-                    text = "$topK",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                TextButton(
-                    onClick = { onTopKChange(topK + 1) },
-                    modifier = Modifier.padding(0.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                ) { Text("+") }
-            }
-        }
-                // Server-side path indexing
-                if (!isIndexing) {
+
+                // ── Настройки реранкера (только если включён) ─────────────────
+                AnimatedVisibility(visible = rerankerEnabled) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                        // Dropdown выбора модели
+                        ExposedDropdownMenuBox(
+                            expanded = modelDropdownExpanded,
+                            onExpandedChange = { modelDropdownExpanded = it },
+                        ) {
+                            OutlinedTextField(
+                                value = modelDisplayNames[rerankerModel] ?: rerankerModel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Модель реранкера", style = MaterialTheme.typography.labelSmall) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
+                                textStyle = MaterialTheme.typography.bodySmall,
+                            )
+                            ExposedDropdownMenu(
+                                expanded = modelDropdownExpanded,
+                                onDismissRequest = { modelDropdownExpanded = false },
+                            ) {
+                                modelDisplayNames.forEach { (modelId, displayName) ->
+                                    DropdownMenuItem(
+                                        text = { Text(displayName, style = MaterialTheme.typography.bodySmall) },
+                                        onClick = {
+                                            onRerankerModelChange(modelId)
+                                            modelDropdownExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        // Слайдер порога
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    text = "Порог отсечения",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "%.2f".format(rerankerThreshold),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Slider(
+                                value = rerankerThreshold,
+                                onValueChange = onRerankerThresholdChange,
+                                valueRange = 0f..1f,
+                                steps = 19,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("0.0 — всё", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("1.0 — только точные", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+
+                // ── Top-K ──────────────────────────────────────────────────────
+                @Composable
+                fun TopKRow(label: String, value: Int, onChange: (Int) -> Unit) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        OutlinedTextField(
-                            value = serverPath,
-                            onValueChange = onServerPathChange,
-                            label = { Text("Путь на сервере", style = MaterialTheme.typography.labelSmall) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        )
-                        Button(
-                            onClick = onIndexFromPath,
-                            enabled = serverPath.isNotBlank(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        Text(label, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Text("Старт", style = MaterialTheme.typography.labelSmall)
+                            TextButton(
+                                onClick = { onChange(value - 1) },
+                                modifier = Modifier.padding(0.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            ) { Text("−") }
+                            Text(
+                                text = "$value",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            TextButton(
+                                onClick = { onChange(value + 1) },
+                                modifier = Modifier.padding(0.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            ) { Text("+") }
                         }
                     }
+                }
+
+                if (rerankerEnabled) {
+                    TopKRow("Извлечь из индекса", topKInitial, onTopKInitialChange)
+                }
+                TopKRow(if (rerankerEnabled) "Вернуть в LLM" else "Top-K", topKFinal, onTopKFinalChange)
+
+                // ── Кнопка сравнения стратегий ────────────────────────────────
+                if (isDone) {
+                    AssistChip(
+                        onClick = onCompareClick,
+                        label = { Text("Сравнить стратегии", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
@@ -983,6 +1096,8 @@ internal fun RagResultsPanel(
     results: List<RagSearchResult>,
     expanded: Boolean,
     onToggle: () -> Unit,
+    searchStats: RagSearchStats? = null,
+    rerankerEnabled: Boolean = false,
 ) {
     Column(
         modifier = Modifier
@@ -999,13 +1114,28 @@ internal fun RagResultsPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Заголовок: "N из M чанков • отсеяно: K" или просто "N чанков"
+            val headerText = when {
+                results.isEmpty() -> "⚠️ Ничего не найдено"
+                rerankerEnabled && searchStats != null -> {
+                    val n = searchStats.finalCount
+                    val m = searchStats.retrievedCount
+                    val filtered = searchStats.filteredCount
+                    val chunks = "$n из $m чанк${when (n) { 1 -> ""; in 2..4 -> "а"; else -> "ов" }}"
+                    if (filtered > 0) "$chunks  •  отсеяно: $filtered" else chunks
+                }
+                else -> {
+                    val n = results.size
+                    "Найдено: $n чанк${when (n) { 1 -> ""; in 2..4 -> "а"; else -> "ов" }}"
+                }
+            }
             Text(
-                text = if (results.isEmpty()) "⚠️ Ничего не найдено"
-                       else "Найдено: ${results.size} чанк${when (results.size) { 1 -> ""; in 2..4 -> "а"; else -> "ов" }}",
+                text = headerText,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = if (results.isEmpty()) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1054,7 +1184,7 @@ internal fun RagResultsPanel(
                             HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
                             // Метаданные
                             Text(
-                                text = "📄 Source: ${result.source}",
+                                text = "📄 ${result.source}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1062,7 +1192,7 @@ internal fun RagResultsPanel(
                             )
                             if (result.section.isNotBlank()) {
                                 Text(
-                                    text = "📌 Section: ${result.section}",
+                                    text = "📌 ${result.section}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -1076,10 +1206,24 @@ internal fun RagResultsPanel(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    text = "🎯 Score: ${"%.3f".format(result.score)}",
+                                    text = "FAISS: ${"%.3f".format(result.score)}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                // Reranker score — виден только если реранкер включён
+                                if (rerankerEnabled && result.rerankerScore != null) {
+                                    val scoreColor = when {
+                                        result.rerankerScore >= 0.7f -> MaterialTheme.colorScheme.primary
+                                        result.rerankerScore >= 0.4f -> MaterialTheme.colorScheme.secondary
+                                        else -> MaterialTheme.colorScheme.error
+                                    }
+                                    Text(
+                                        text = "🏆 ${"%.2f".format(result.rerankerScore)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = scoreColor,
+                                    )
+                                }
                             }
                         }
                     }

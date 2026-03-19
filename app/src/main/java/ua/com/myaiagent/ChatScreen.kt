@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -79,6 +80,8 @@ import java.util.Date
 import java.util.Locale
 import com.mikepenz.markdown.m3.Markdown
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
+import ua.com.myaiagent.data.HttpFileLogger
 import ua.com.myaiagent.data.context.StrategyType
 import ua.com.myaiagent.data.mcp.McpTool
 
@@ -91,6 +94,7 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.state.collectAsState()
     val messages by viewModel.messages.collectAsState()
+    val chatMessages = messages.filter { it.origin == MessageOrigin.MAIN }
     val lastLog by viewModel.lastRequestLog.collectAsState()
     val tokenStats by viewModel.tokenStats.collectAsState()
     val contextInfo by viewModel.contextInfo.collectAsState()
@@ -117,9 +121,9 @@ fun ChatScreen(
 
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
         }
     }
 
@@ -260,7 +264,10 @@ fun ChatScreen(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(messages) { message ->
+            itemsIndexed(
+                items = chatMessages,
+                key = { index, message -> "$index:${message.role}:${message.content.hashCode()}" },
+            ) { _, message ->
                 MessageBubble(message)
             }
             if (uiState is UiState.Loading) {
@@ -286,6 +293,11 @@ fun ChatScreen(
 
     // Log dialog (opened from toolbar)
     if (showLogs) {
+        val httpFileLogger: HttpFileLogger = koinInject()
+        var httpLogText by remember { mutableStateOf("") }
+        LaunchedEffect(logTab) {
+            if (logTab == 2) httpLogText = httpFileLogger.readLog()
+        }
         AlertDialog(
             onDismissRequest = onDismissLogs,
             title = { Text("Лог запроса") },
@@ -294,13 +306,15 @@ fun ChatScreen(
                     TabRow(selectedTabIndex = logTab) {
                         Tab(selected = logTab == 0, onClick = { logTab = 0 }, text = { Text("Лог") })
                         Tab(selected = logTab == 1, onClick = { logTab = 1 }, text = { Text("JSON") })
+                        Tab(selected = logTab == 2, onClick = { logTab = 2 }, text = { Text("HTTP") })
                     }
                     SelectionContainer {
                         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             Text(
                                 text = when (logTab) {
                                     0 -> lastLog?.content ?: ""
-                                    else -> lastLog?.rawJson ?: ""
+                                    1 -> lastLog?.rawJson ?: ""
+                                    else -> httpLogText
                                 },
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
@@ -312,6 +326,9 @@ fun ChatScreen(
             confirmButton = {
                 TextButton(onClick = onDismissLogs) { Text("Закрыть") }
             },
+            dismissButton = if (logTab == 2) {
+                { TextButton(onClick = { httpFileLogger.clear(); httpLogText = "" }) { Text("Очистить") } }
+            } else null,
         )
     }
 
@@ -856,8 +873,6 @@ internal fun RagIndexPanel(
     onRerankerEnabledChange: (Boolean) -> Unit,
     rerankerModel: String,
     onRerankerModelChange: (String) -> Unit,
-    rerankerThreshold: Float,
-    onRerankerThresholdChange: (Float) -> Unit,
     onCompareClick: () -> Unit,
 ) {
     val isIndexing = state is RagIndexingState.Indexing
@@ -1002,41 +1017,6 @@ internal fun RagIndexPanel(
                             }
                         }
 
-                        // Слайдер порога
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    text = "Порог отсечения",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = "%.2f".format(rerankerThreshold),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            Slider(
-                                value = rerankerThreshold,
-                                onValueChange = onRerankerThresholdChange,
-                                valueRange = 0f..1f,
-                                steps = 19,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text("0.0 — всё", style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("1.0 — только точные", style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
                     }
                 }
 
@@ -1116,7 +1096,7 @@ internal fun RagResultsPanel(
         ) {
             // Заголовок: "N из M чанков • отсеяно: K" или просто "N чанков"
             val headerText = when {
-                results.isEmpty() -> "⚠️ Ничего не найдено"
+                results.isEmpty() -> "Не знаю. Уточните запрос."
                 rerankerEnabled && searchStats != null -> {
                     val n = searchStats.finalCount
                     val m = searchStats.retrievedCount
@@ -1408,13 +1388,18 @@ private fun TokenStatsBar(stats: TokenStats, contextInfo: String, strategy: Stra
 }
 
 @Composable
-internal fun MessageBubble(message: UiMessage) {
+internal fun MessageBubble(
+    message: UiMessage,
+    citations: List<RagSearchResult> = emptyList(),
+) {
     val isUser = message.role == "user"
+    val shouldRenderMarkdown = !isUser && looksLikeMarkdown(message.content)
+    val effectiveCitations = if (citations.isNotEmpty()) citations else message.citations
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .background(
@@ -1425,17 +1410,163 @@ internal fun MessageBubble(message: UiMessage) {
                     shape = RoundedCornerShape(12.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SelectionContainer {
                 if (isUser) {
                     Text(text = message.content)
-                } else {
+                } else if (shouldRenderMarkdown) {
                     Markdown(
                         content = message.content,
                         modifier = Modifier.widthIn(max = 300.dp),
                     )
+                } else {
+                    Text(text = message.content)
                 }
+            }
+            if (effectiveCitations.isNotEmpty()) {
+                CitationList(
+                    citations = effectiveCitations,
+                )
             }
         }
     }
+}
+
+private fun looksLikeMarkdown(text: String): Boolean {
+    return text.contains("```") ||
+        text.contains("**") ||
+        text.contains("__") ||
+        text.contains("`") ||
+        text.contains("\n- ") ||
+        text.contains("\n1. ") ||
+        text.contains("[") && text.contains("](")
+}
+
+@Composable
+private fun CitationList(
+    citations: List<RagSearchResult>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "Цитаты",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        citations.take(3).forEachIndexed { index, citation ->
+            CitationCard(
+                citation = citation,
+                index = index + 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CitationCard(
+    citation: RagSearchResult,
+    index: Int,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val sourceLabel = citation.source.substringAfterLast('\\').substringAfterLast('/')
+    val sectionLabel = citation.section.trim()
+    val bodyText = stripLeadingHeading(citation.text.trim(), sectionLabel)
+    val snippet = bodyText.take(260).let { preview ->
+        if (preview.length < bodyText.length) "$preview..." else preview
+    }
+    val showSection = sectionLabel.isNotEmpty() &&
+        sectionLabel != sourceLabel &&
+        sectionLabel != citation.source.trim()
+    val metricLabel = citation.rerankerScore?.let { rerankScore ->
+        "rerank ${String.format(Locale.getDefault(), "%.0f", rerankScore * 100)}%"
+    } ?: "dist ${String.format(Locale.getDefault(), "%.3f", citation.score)}"
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "[$index] $sourceLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = metricLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            if (showSection) {
+                Text(
+                    text = sectionLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!expanded) {
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private fun stripLeadingHeading(text: String, heading: String): String {
+    if (heading.isBlank()) return text
+    val lines = text.lines()
+    val firstNonBlankIndex = lines.indexOfFirst { it.isNotBlank() }
+    if (firstNonBlankIndex < 0) return text
+
+    val firstLine = lines[firstNonBlankIndex]
+        .trim()
+        .removePrefix("#")
+        .trim()
+
+    if (!firstLine.equals(heading, ignoreCase = false)) return text
+
+    val remainder = lines.drop(firstNonBlankIndex + 1)
+        .dropWhile { it.isBlank() }
+        .joinToString("\n")
+        .trim()
+
+    return if (remainder.isBlank()) text else remainder
 }

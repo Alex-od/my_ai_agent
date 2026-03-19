@@ -512,15 +512,24 @@ def handle_search_documents(args: dict) -> dict:
     filtered_count  = 0
     reranker_error  = None
 
+    def relevance_score(candidate: dict) -> float:
+        reranker_score = candidate.get("reranker_score")
+        if reranker_score is not None:
+            return float(reranker_score)
+        distance = float(candidate.get("score", 0.0))
+        return 1.0 / (1.0 + distance)
+
     if reranker_enabled and candidates:
         try:
             candidates = reranker_service.rerank(query, candidates, reranker_model)
-            before_filter  = len(candidates)
-            candidates     = [c for c in candidates if c["reranker_score"] >= rerank_threshold]
-            filtered_count = before_filter - len(candidates)
         except Exception as e:
             reranker_error = str(e)
             print(f"[WARN] Реранкер упал, возвращаем FAISS-результаты: {e}")
+
+    if reranker_enabled and candidates:
+        before_filter = len(candidates)
+        candidates = [c for c in candidates if relevance_score(c) >= rerank_threshold]
+        filtered_count = before_filter - len(candidates)
 
     results = candidates[:top_k_final]
 

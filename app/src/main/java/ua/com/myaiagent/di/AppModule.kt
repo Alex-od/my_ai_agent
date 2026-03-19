@@ -5,7 +5,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
+import ua.com.myaiagent.data.HttpFileLogger
 import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
@@ -38,7 +42,10 @@ import ua.com.myaiagent.data.local.MIGRATION_4_5
 
 val appModule = module {
 
+    single { HttpFileLogger(androidContext()) }
+
     single<HttpClient> {
+        val httpFileLogger: HttpFileLogger = get()
         HttpClient(OkHttp) {
             install(HttpTimeout) {
                 requestTimeoutMillis = 600_000
@@ -50,6 +57,13 @@ val appModule = module {
                     ignoreUnknownKeys = true
                     isLenient = true
                 })
+            }
+            install(Logging) {
+                logger = object : io.ktor.client.plugins.logging.Logger {
+                    override fun log(message: String) = httpFileLogger.log(message)
+                }
+                level = LogLevel.ALL
+                sanitizeHeader { header -> header == HttpHeaders.Authorization }
             }
         }
     }

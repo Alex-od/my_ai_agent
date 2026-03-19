@@ -1,4 +1,4 @@
-package ua.com.myaiagent
+﻿package ua.com.myaiagent
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,10 +39,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableIntStateOf
 import com.mikepenz.markdown.m3.Markdown
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
+import ua.com.myaiagent.data.HttpFileLogger
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -52,6 +54,7 @@ fun RagScreen(
 ) {
     val uiState by viewModel.state.collectAsState()
     val messages by viewModel.messages.collectAsState()
+    val ragMessages = messages.filter { it.origin == MessageOrigin.RAG }
     val lastLog by viewModel.lastRequestLog.collectAsState()
     val mcpStatus by viewModel.mcpStatus.collectAsState()
     val mcpTools by viewModel.mcpTools.collectAsState()
@@ -64,7 +67,6 @@ fun RagScreen(
     val ragEnabled by viewModel.ragEnabled.collectAsState()
     val ragRerankerEnabled by viewModel.ragRerankerEnabled.collectAsState()
     val ragRerankerModel by viewModel.ragRerankerModel.collectAsState()
-    val ragRerankerThreshold by viewModel.ragRerankerThreshold.collectAsState()
     val ragLastSearchStats by viewModel.ragLastSearchStats.collectAsState()
 
     var showRagCompareDialog by remember { mutableStateOf(false) }
@@ -74,8 +76,8 @@ fun RagScreen(
 
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(ragMessages.size) {
+        if (ragMessages.isNotEmpty()) listState.animateScrollToItem(ragMessages.size - 1)
     }
 
 
@@ -100,7 +102,7 @@ fun RagScreen(
                 onClick = {
                     val prompt = query.trim()
                     if (prompt.isNotEmpty()) {
-                        viewModel.send(prompt, useHistory = false)
+                        viewModel.send(prompt, useHistory = false, origin = MessageOrigin.RAG)
                         query = ""
                     }
                 },
@@ -120,25 +122,40 @@ fun RagScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val isReady = mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Done
-            val isIndexing = mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Indexing
+            val isBusy = mcpStatus == McpStatus.CONNECTING || ragIndexingState is RagIndexingState.Indexing
             val statusLabel = when {
-                isReady    -> "● RAG готов"
-                isIndexing -> "Индексация…"
-                mcpStatus == McpStatus.CONNECTING -> "Подключение…"
-                mcpStatus == McpStatus.ERROR -> "✕ Ошибка подключения"
+                isReady -> "RAG готов"
+                mcpStatus == McpStatus.CONNECTING -> "Подключаюсь к MCP"
+                mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Idle -> "Проверяю индекс"
+                mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Indexing -> {
+                    val indexingState = ragIndexingState as RagIndexingState.Indexing
+                    when {
+                        indexingState.total > 0 -> "Индексирую: ${indexingState.done}/${indexingState.total}"
+                        indexingState.message.isNotBlank() -> indexingState.message
+                        else -> "Индексирую..."
+                    }
+                }
+                mcpStatus == McpStatus.ERROR -> "Ошибка подключения"
+                else -> "Ожидание статуса"
+            }
+            val statusDetail = when {
+                mcpStatus == McpStatus.CONNECTING -> "Устанавливаю соединение с сервером."
+                mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Idle -> "Если индекс уже есть, он появится после проверки."
+                mcpStatus == McpStatus.CONNECTED && ragIndexingState is RagIndexingState.Indexing -> "Дождись завершения индексации или открой логи сервера."
+                mcpStatus == McpStatus.ERROR -> "Нажми «Повторить», чтобы подключиться заново."
                 else -> ""
             }
             if (isReady) {
                 Text(
-                    text = statusLabel,
+                    text = "RAG готов",
                     color = androidx.compose.ui.graphics.Color(0xFF2E7D32),
                     style = MaterialTheme.typography.labelSmall,
                 )
             } else {
-                if (mcpStatus != McpStatus.ERROR) {
+                if (isBusy) {
                     CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                 }
-                if (statusLabel.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = statusLabel,
                         style = MaterialTheme.typography.labelSmall,
@@ -147,12 +164,21 @@ fun RagScreen(
                         else
                             MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (statusDetail.isNotEmpty()) {
+                        Text(
+                            text = statusDetail,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (mcpStatus == McpStatus.ERROR) {
+                        Button(onClick = { viewModel.connectMcp() }) {
+                            Text("Повторить")
+                        }
+                    }
                 }
             }
         }
-
-        val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content ?: ""
-        SpeakButton(text = lastAssistantText)
 
         // RAG панели
         if (mcpStatus == McpStatus.CONNECTED && !mcpTools.any { it.name == "get_indexing_status" }) {
@@ -178,8 +204,6 @@ fun RagScreen(
                 onRerankerEnabledChange = { viewModel.setRerankerEnabled(it) },
                 rerankerModel = ragRerankerModel,
                 onRerankerModelChange = { viewModel.setRerankerModel(it) },
-                rerankerThreshold = ragRerankerThreshold,
-                onRerankerThresholdChange = { viewModel.setRerankerThreshold(it) },
                 onCompareClick = {
                     viewModel.loadRagCompareStats()
                     showRagCompareDialog = true
@@ -206,8 +230,11 @@ fun RagScreen(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(messages) { message ->
-                MessageBubble(message)
+            itemsIndexed(
+                items = ragMessages,
+                key = { index, message -> "$index:${message.role}:${message.content.hashCode()}" },
+            ) { index, message ->
+                MessageBubble(message = message)
             }
             if (uiState is UiState.Loading) {
                 item {
@@ -240,6 +267,11 @@ fun RagScreen(
 
     // Log dialog
     if (showLogs) {
+        val httpFileLogger: HttpFileLogger = koinInject()
+        var httpLogText by remember { mutableStateOf("") }
+        LaunchedEffect(logTab) {
+            if (logTab == 2) httpLogText = httpFileLogger.readLog()
+        }
         AlertDialog(
             onDismissRequest = onDismissLogs,
             title = { Text("Лог запроса") },
@@ -248,13 +280,15 @@ fun RagScreen(
                     TabRow(selectedTabIndex = logTab) {
                         Tab(selected = logTab == 0, onClick = { logTab = 0 }, text = { Text("Лог") })
                         Tab(selected = logTab == 1, onClick = { logTab = 1 }, text = { Text("JSON") })
+                        Tab(selected = logTab == 2, onClick = { logTab = 2 }, text = { Text("HTTP") })
                     }
                     SelectionContainer {
                         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             Text(
                                 text = when (logTab) {
                                     0 -> lastLog?.content ?: ""
-                                    else -> lastLog?.rawJson ?: ""
+                                    1 -> lastLog?.rawJson ?: ""
+                                    else -> httpLogText
                                 },
                                 fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.bodySmall,
@@ -266,6 +300,12 @@ fun RagScreen(
             confirmButton = {
                 TextButton(onClick = onDismissLogs) { Text("Закрыть") }
             },
+            dismissButton = if (logTab == 2) {
+                { TextButton(onClick = { httpFileLogger.clear(); httpLogText = "" }) { Text("Очистить") } }
+            } else null,
         )
     }
 }
+
+
+
